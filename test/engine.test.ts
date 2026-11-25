@@ -220,6 +220,27 @@ describe("fix-failing workflow", () => {
     expect(done.run.statusReason).toContain("Original tests missing");
   });
 
+  it("reproduces one method but verifies the whole class, so sibling tests count", async () => {
+    const root = workspace({
+      test: passingTest.replace(
+        "  @Test\n  fun showsGreeting",
+        '  @Test\n  fun sibling() {\n    rule.onNodeWithText("Hi").assertExists()\n  }\n\n  @Test\n  fun showsGreeting',
+      ),
+    });
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
+    const gradle = fakeGradle(root, behavior);
+    const d = deps(root, gradle.exec);
+    const target = { file: TEST_FILE, method: "showsGreeting" };
+    let run = start(newRun("goal", null), { workflow: "fix-failing", targets: [target] }, root).run;
+    run = (await step(run, undefined, d)).run;
+    run = (await step(run, "greeting() returns the wrong text.", d)).run;
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
+    const done = await step(run, undefined, d);
+    expect(gradle.calls[0]).toContain("a.FooTest.showsGreeting");
+    expect(gradle.calls[1]).toContain("a.FooTest");
+    expect(done.run.status).toBe("verified");
+  });
+
   it("blocks after two passing reproduction attempts", async () => {
     const root = workspace();
     const d = deps(root, fakeGradle(root, () => "pass").exec);

@@ -123,11 +123,23 @@ export function nextStep(run: Run): string {
 const resolveAll = (run: Run, cwd: string): ResolvedTarget[] =>
   run.targets.map((target) => resolveTarget(cwd, target));
 
+/**
+ * Workflows that must preserve tests verify whole test classes, so a fix cannot pass by narrowing
+ * the run to one method while sibling tests break or disappear.
+ */
+const WHOLE_CLASS: ReadonlySet<RunPurpose> = new Set(["verify", "stress", "measure"]);
+
+function runnable(run: Run, purpose: RunPurpose, cwd: string): ResolvedTarget[] {
+  const resolved = resolveAll(run, cwd);
+  if (!WHOLE_CLASS.has(purpose) || !workflows[run.workflow ?? "write-test"].preserveTests) return resolved;
+  return resolved.map(({ method: _method, ...whole }) => whole);
+}
+
 async function execute(run: Run, purpose: RunPurpose, deps: Deps): Promise<[Run, TestRun]> {
   const tree = digest(fingerprint(deps.cwd));
   const execution = await runTargets(
     deps.exec,
-    resolveAll(run, deps.cwd),
+    runnable(run, purpose, deps.cwd),
     deps.config,
     deps.signal,
   );
