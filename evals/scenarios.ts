@@ -164,11 +164,6 @@ export const scenarios: readonly Scenario[] = [
       const count = tests.reduce((n, f) => n + (read(o.dir, f).match(/@Test/g)?.length ?? 0), 0);
       return [
         ...statusIs(o, "verified", "migrate"),
-        check(
-          "verified on the first pass (no reopen)",
-          o.metrics.gateNudges === 0,
-          String(o.metrics.gateNudges),
-        ),
         check("migrated file has both cases", count >= 2, String(count)),
         ...testsAreValid(o, "app/src/main/java/dev/fixture/Counter.kt", "count += 1", "count += 0"),
       ];

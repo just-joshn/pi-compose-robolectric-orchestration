@@ -240,7 +240,7 @@ export const workflows: Readonly<Record<WorkflowId, Workflow>> = {
       phase(
         "migrate",
         "edit",
-        "Write the Robolectric version under src/test. Only test files may change. Call compose_test_step when done.",
+        "Write the Robolectric version under src/test. If every case moved, delete the androidTest source now, not after verification. Only test files may change. Call compose_test_step when done.",
         TESTS,
       ),
       verify,
