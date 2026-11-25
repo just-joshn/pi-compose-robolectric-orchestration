@@ -1,0 +1,57 @@
+{
+  "name": "pi-compose-robolectric-orchestration",
+  "version": "0.0.1",
+  "description": "Compose Robolectric orchestration for Pi",
+  "keywords": [
+    "pi-package",
+    "skills"
+  ],
+  "homepage": "https://github.com/just-joshn/pi-compose-robolectric-orchestration#readme",
+  "bugs": {
+    "url": "https://github.com/just-joshn/pi-compose-robolectric-orchestration/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/just-joshn/pi-compose-robolectric-orchestration.git"
+  },
+  "files": [
+    "src"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test:coverage"
+  },
+  "devDependencies": {
+    "@types/node": "22",
+    "@vitest/coverage-v8": "^5.1.1",
+    "oxlint": "^1.95.0",
+    "oxlint-tsgolint": "^7.0.2008",
+    "tsrs": "7.1.0-beta.tsrs5",
+    "typescript": "6",
+    "vitest": "^5.1.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "src/index.ts"
+    ]
+  }
+}
