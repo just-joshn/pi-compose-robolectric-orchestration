@@ -70,3 +70,8 @@ then `gradle`. You can also set `COMPOSE_TEST_TASK` (default `testDebugUnitTest`
 bun install
 bun run typecheck && bun run lint && bun run test:coverage
 ```
+
+The unit tests drive the workflows against a fake Gradle. The end-to-end suite, which ran real Pi
+sessions with real Gradle and Robolectric on a small Android project, was removed to keep the repo
+TypeScript-only. Its last run passed all 16 scenarios at commit `d2073e0`. To run it again, restore
+it with `git checkout d2073e0 -- evals fixtures` and run `bun evals/run.ts`.
