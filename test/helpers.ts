@@ -1,0 +1,100 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { type Config, defaults } from "../src/config.ts";
+import type { Deps } from "../src/engine.ts";
+import type { Exec } from "../src/runner.ts";
+
+export const TEST_FILE = "app/src/test/java/a/FooTest.kt";
+export const MAIN_FILE = "app/src/main/java/a/Foo.kt";
+export const RESULT_XML = "app/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml";
+
+export const passingTest = `package a
+
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+@RunWith(RobolectricTestRunner::class)
+class FooTest {
+  @get:Rule val rule = createComposeRule()
+
+  @Test
+  fun showsGreeting() {
+    rule.onNodeWithText("Hello").assertIsDisplayed()
+  }
+}
+`;
+
+export function write(root: string, file: string, content: string) {
+  mkdirSync(dirname(join(root, file)), { recursive: true });
+  writeFileSync(join(root, file), content);
+}
+
+export const read = (root: string, file: string) => readFileSync(join(root, file), "utf8");
+
+export function git(root: string, ...args: string[]) {
+  execFileSync("git", args, { cwd: root, stdio: "ignore" });
+}
+
+/** A tiny Gradle-shaped workspace under git: one module, one test, one production file. */
+export function workspace(options: { git?: boolean; test?: string | null } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "compose-test-"));
+  write(root, "settings.gradle.kts", 'include(":app")\n');
+  write(root, ".gitignore", "build/\n");
+  write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
+  if (options.test !== null) write(root, TEST_FILE, options.test ?? passingTest);
+  if (options.git !== false) {
+    git(root, "init", "-q");
+    git(root, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A");
+    git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base");
+  }
+  return root;
+}
+
+export type Verdict = "pass" | "fail" | "build-error" | "flaky";
+
+const xml = (cases: readonly [string, boolean][]) =>
+  `<?xml version="1.0"?><testsuite name="a.FooTest" tests="${cases.length}">${cases
+    .map(([name, ok]) =>
+      ok
+        ? `<testcase name="${name}" classname="a.FooTest" time="0.5"/>`
+        : `<testcase name="${name}" classname="a.FooTest" time="0.5"><failure message="Assert failed: &quot;Hello&quot; is not displayed" type="java.lang.AssertionError">trace</failure></testcase>`,
+    )
+    .join("")}</testsuite>`;
+
+/**
+ * A fake Gradle: decides each run from the current workspace content, writes the JUnit XML a real
+ * run would write, and records every invocation.
+ */
+export function fakeGradle(
+  root: string,
+  decide: (main: string, test: string, call: number) => Verdict,
+) {
+  const calls: string[][] = [];
+  const exec: Exec = async (_command, args) => {
+    calls.push([...args]);
+    const verdict = decide(read(root, MAIN_FILE), read(root, TEST_FILE), calls.length);
+    if (verdict === "build-error")
+      return { code: 1, stdout: "", stderr: "e: Unresolved reference\nBUILD FAILED" };
+    const names = [...read(root, TEST_FILE).matchAll(/@Test\s+fun\s+(\w+)/g)].map(
+      (m) => m[1] ?? "",
+    );
+    const ok = verdict === "pass" || (verdict === "flaky" && calls.length % 2 === 0);
+    write(root, RESULT_XML, xml(names.map((name) => [name, ok])));
+    return { code: ok ? 0 : 1, stdout: ok ? "BUILD SUCCESSFUL" : "FAILED", stderr: "" };
+  };
+  return { exec, calls };
+}
+
+/** Production code containing "BROKEN" fails the tests; everything else passes. */
+export const behavior = (main: string) => (main.includes("BROKEN") ? "fail" : "pass");
+
+export function deps(root: string, exec: Exec, config: Partial<Config> = {}): Deps {
+  const dir = mkdtempSync(join(tmpdir(), "compose-test-state-"));
+  return { cwd: root, exec, config: { ...defaults, gradle: "gradle", ...config }, dir };
+}

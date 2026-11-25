@@ -1,10 +1,13 @@
 {
   "name": "pi-compose-robolectric-orchestration",
   "version": "0.0.1",
-  "description": "Compose Robolectric orchestration for Pi",
+  "description": "Pi-native, extension-enforced workflows for Jetpack Compose UI tests on Robolectric",
   "keywords": [
+    "android",
+    "jetpack-compose",
     "pi-package",
-    "skills"
+    "robolectric",
+    "testing"
   ],
   "homepage": "https://github.com/just-joshn/pi-compose-robolectric-orchestration#readme",
   "bugs": {
@@ -16,7 +19,11 @@
     "url": "git+https://github.com/just-joshn/pi-compose-robolectric-orchestration.git"
   },
   "files": [
-    "src"
+    "src",
+    "!src/**/*.test.ts",
+    "skills",
+    "docs",
+    "README.md"
   ],
   "type": "module",
   "publishConfig": {
@@ -32,7 +39,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test:coverage"
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test:coverage",
+    "eval": "bun evals/run.ts"
   },
   "devDependencies": {
     "@types/node": "22",
@@ -44,7 +52,8 @@
     "vitest": "^5.1.1"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -52,6 +61,9 @@
   "pi": {
     "extensions": [
       "src/index.ts"
+    ],
+    "skills": [
+      "skills"
     ]
   }
 }
