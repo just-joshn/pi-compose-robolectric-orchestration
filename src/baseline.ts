@@ -34,7 +34,10 @@ export function baselineContent(
     const saved = (JSON.parse(readFileSync(snapshot, "utf8")) as Record<string, string>)[path];
     return saved === undefined ? null : Buffer.from(saved, "base64");
   }
-  const shown = spawnSync("git", ["show", `${baseline.head}:./${path}`], { cwd, maxBuffer: 64 * 1024 * 1024 });
+  const shown = spawnSync("git", ["show", `${baseline.head}:./${path}`], {
+    cwd,
+    maxBuffer: 64 * 1024 * 1024,
+  });
   return shown.status === 0 ? shown.stdout : null;
 }
 

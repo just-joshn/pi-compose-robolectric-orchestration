@@ -2,23 +2,23 @@
 
 ## Components
 
-| File | Owns |
-|---|---|
-| `src/index.ts` | Pi wiring: `/compose-test`, the `tool_call` edit gate, read tracking, the `agent_before_settle` gate, session restore |
-| `src/tools.ts` | The five model-facing tools. Long-running results are committed only if the run did not change meanwhile |
-| `src/session.ts` | The run for the current branch. Every change is persisted with `pi.appendEntry` and rebuilt from `getBranch()` |
-| `src/workflows.ts` | The workflow registry: phases, edit scopes, allowed final changes, test preservation |
-| `src/state.ts` | The `Run` record, pure transitions, and validation of persisted runs |
-| `src/engine.ts` | Start validation and phase completion; chains extension-run phases |
-| `src/controls.ts` | Negative control (`mutate`) and the fix-failing regression check |
-| `src/finalize.ts` | The final checks that decide VERIFIED, and `recheck` at settle |
-| `src/runner.ts`, `src/project.ts`, `src/junit.ts` | Gradle invocation, target resolution, JUnit XML parsing |
-| `src/tree.ts` | Working-tree fingerprints (git status plus git-hidden source files; full walk without git) |
-| `src/baseline.ts` | Start content of files, and the "tests were weakened" check |
-| `src/swap.ts` | Crash-safe temporary file replacement that never overwrites someone else's write |
-| `src/lint.ts` | Comment- and string-aware Kotlin test rules, each with a citation |
-| `src/workspace.ts`, `src/config.ts` | Per-workspace lock and state directory, config loading |
-| `skills/compose-robolectric/` | The methodology: core rules plus references loaded per workflow |
+| File                                              | Owns                                                                                                                  |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`                                    | Pi wiring: `/compose-test`, the `tool_call` edit gate, read tracking, the `agent_before_settle` gate, session restore |
+| `src/tools.ts`                                    | The five model-facing tools. Long-running results are committed only if the run did not change meanwhile              |
+| `src/session.ts`                                  | The run for the current branch. Every change is persisted with `pi.appendEntry` and rebuilt from `getBranch()`        |
+| `src/workflows.ts`                                | The workflow registry: phases, edit scopes, allowed final changes, test preservation                                  |
+| `src/state.ts`                                    | The `Run` record, pure transitions, and validation of persisted runs                                                  |
+| `src/engine.ts`                                   | Start validation and phase completion; chains extension-run phases                                                    |
+| `src/controls.ts`                                 | Negative control (`mutate`) and the fix-failing regression check                                                      |
+| `src/finalize.ts`                                 | The final checks that decide VERIFIED, and `recheck` at settle                                                        |
+| `src/runner.ts`, `src/project.ts`, `src/junit.ts` | Gradle invocation, target resolution, JUnit XML parsing                                                               |
+| `src/tree.ts`                                     | Working-tree fingerprints (git status plus git-hidden source files; full walk without git)                            |
+| `src/baseline.ts`                                 | Start content of files, and the "tests were weakened" check                                                           |
+| `src/swap.ts`                                     | Crash-safe temporary file replacement that never overwrites someone else's write                                      |
+| `src/lint.ts`                                     | Comment- and string-aware Kotlin test rules, each with a citation                                                     |
+| `src/workspace.ts`, `src/config.ts`               | Per-workspace lock and state directory, config loading                                                                |
+| `skills/compose-robolectric/`                     | The methodology: core rules plus references loaded per workflow                                                       |
 
 ## Run lifecycle
 

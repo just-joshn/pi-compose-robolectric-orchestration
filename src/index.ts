@@ -1,6 +1,10 @@
 import { isAbsolute, relative, resolve } from "node:path";
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  SessionBoundaryDraft,
+} from "@earendil-works/pi-coding-agent";
 
 import { safeConfig } from "./config.ts";
 import { nextStep } from "./engine.ts";
@@ -16,7 +20,8 @@ import { isWorkflowId, routingTable } from "./workflows.ts";
 import { stateDir } from "./workspace.ts";
 
 const EDIT_TOOLS = new Set(["edit", "write"]);
-const pathInput = (input: Record<string, unknown>) => (typeof input["path"] === "string" ? input["path"] : "");
+const pathInput = (input: Record<string, unknown>) =>
+  typeof input["path"] === "string" ? input["path"] : "";
 
 function showStatus(ctx: ExtensionContext, session: Session) {
   const run = session.run;
@@ -34,8 +39,14 @@ function onSessionStart(pi: ExtensionAPI, session: Session) {
   const restore = async (_event: unknown, ctx: ExtensionContext) => {
     try {
       const { restored, conflicts } = recoverSwap(stateDir(ctx.cwd));
-      if (restored.length) notify(ctx, `compose-test restored ${restored.join(", ")} after an interrupted run.`, "warning");
-      if (conflicts.length) notify(ctx, `compose-test left changed files alone: ${conflicts.join(", ")}`, "warning");
+      if (restored.length)
+        notify(
+          ctx,
+          `compose-test restored ${restored.join(", ")} after an interrupted run.`,
+          "warning",
+        );
+      if (conflicts.length)
+        notify(ctx, `compose-test left changed files alone: ${conflicts.join(", ")}`, "warning");
     } catch (error) {
       notify(ctx, `compose-test could not repair an interrupted run: ${String(error)}`, "warning");
     }
@@ -50,30 +61,39 @@ function onSessionStart(pi: ExtensionAPI, session: Session) {
 
 function registerCommand(pi: ExtensionAPI, session: Session) {
   pi.registerCommand("compose-test", {
-    description: "Run a Compose + Robolectric test workflow: /compose-test [workflow] <goal and acceptance criteria>",
+    description:
+      "Run a Compose + Robolectric test workflow: /compose-test [workflow] <goal and acceptance criteria>",
     getArgumentCompletions: (prefix) => {
       const ids = routingTable()
         .split("\n")
         .map((line) => line.slice(2).split(":")[0] ?? "");
-      const items = ["status", "cancel", ...ids].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
+      const items = ["status", "cancel", ...ids]
+        .filter((value) => value.startsWith(prefix))
+        .map((value) => ({ value, label: value }));
       return items.length ? items : null;
     },
     handler: async (args, ctx) => {
       const input = args.trim();
       const [first = "", ...rest] = input.split(/\s+/);
-      if (!input || first === "status") return notify(ctx, session.run ? report(session.run) : `No compose-test run.\n${routingTable()}`);
+      if (!input || first === "status")
+        return notify(
+          ctx,
+          session.run ? report(session.run) : `No compose-test run.\n${routingTable()}`,
+        );
       if (first === "cancel") {
         const run = session.run;
         if (!run || terminal(run.status)) return notify(ctx, "No active compose-test run.");
         const cancelled = session.set(finish(run, "incomplete", "Cancelled by the operator."));
-        void session.exclusive(async () => session.release(ctx));
+        session.exclusive(async () => session.release(ctx)).catch(() => undefined);
         return notify(ctx, report(cancelled));
       }
       const forced = isWorkflowId(first) ? first : null;
       const goal = forced ? rest.join(" ") : input;
-      if (!goal) return notify(ctx, "Describe the goal and acceptance criteria after the workflow name.");
+      if (!goal)
+        return notify(ctx, "Describe the goal and acceptance criteria after the workflow name.");
       const previous = session.run;
-      if (previous && !terminal(previous.status)) session.set(finish(previous, "incomplete", "Superseded by a new request."));
+      if (previous && !terminal(previous.status))
+        session.set(finish(previous, "incomplete", "Superseded by a new request."));
       session.set(newRun(goal, forced));
       showStatus(ctx, session);
       pi.sendUserMessage(kickoff(goal, forced));
@@ -90,7 +110,8 @@ function outsideWorkspace(cwd: string, path: string) {
 }
 
 function editGate(run: Run, cwd: string, path: string): string | undefined {
-  if (run.status === "routing") return "compose-test: call compose_test_start before editing files.";
+  if (run.status === "routing")
+    return "compose-test: call compose_test_start before editing files.";
   if (outsideWorkspace(cwd, path)) return `compose-test: ${path} is outside the workspace.`;
   const phase = currentPhase(run);
   if (!phase) return `compose-test: no phase is active. ${nextStep(run)}`;
@@ -100,8 +121,18 @@ function editGate(run: Run, cwd: string, path: string): string | undefined {
   return `compose-test: phase "${phase.id}" may change ${allowed}; ${path} is ${category}. ${nextStep(run)}`;
 }
 
-const statusEntry = (run: Run) => ({ type: "custom_message" as const, customType: "compose-test-status", content: report(run), display: true });
-const gateEntry = (content: string) => ({ type: "custom_message" as const, customType: "compose-test-gate", content, display: true });
+const statusEntry = (run: Run) => ({
+  type: "custom_message" as const,
+  customType: "compose-test-status",
+  content: report(run),
+  display: true,
+});
+const gateEntry = (content: string) => ({
+  type: "custom_message" as const,
+  customType: "compose-test-gate",
+  content,
+  display: true,
+});
 
 function registerGates(pi: ExtensionAPI, session: Session) {
   pi.on("tool_call", async (event, ctx) => {
@@ -129,33 +160,58 @@ function registerGates(pi: ExtensionAPI, session: Session) {
       return settle(run, ctx, event.entries);
     } catch (error) {
       if (terminal(run.status)) return undefined;
-      return { entries: [...event.entries, gateEntry(`compose-test gate error: ${String(error)}. ${nextStep(run)}`)], continue: true };
+      return {
+        entries: [
+          ...event.entries,
+          gateEntry(`compose-test gate error: ${String(error)}. ${nextStep(run)}`),
+        ],
+        continue: true,
+      };
     }
   });
 
-  function settle(initial: Run, ctx: ExtensionContext, entries: readonly unknown[]) {
+  function settle(initial: Run, ctx: ExtensionContext, entries: readonly SessionBoundaryDraft[]) {
     const { config, error } = safeConfig(ctx.cwd, ctx.isProjectTrusted());
     if (error) notify(ctx, `compose-test config ignored: ${error}`, "warning");
-    let run = initial.status === "verified" && initial.reported !== initial.revision ? session.set(recheck(initial, { cwd: ctx.cwd, config })) : initial;
+    let run =
+      initial.status === "verified" && initial.reported !== initial.revision
+        ? session.set(recheck(initial, { cwd: ctx.cwd, config }))
+        : initial;
     const post = (final: Run) => {
       session.set({ ...final, reported: final.revision });
       session.release(ctx);
       showStatus(ctx, session);
-      return { entries: [...(entries as never[]), statusEntry(final)] };
+      return { entries: [...entries, statusEntry(final)] };
     };
     if (terminal(run.status)) return run.reported === run.revision ? undefined : post(run);
     const stalled = session.settledRevision === run.revision;
     session.settledRevision = run.revision;
-    run = session.set({ ...run, stalls: stalled ? run.stalls + 1 : run.stalls, nudges: run.nudges + 1 });
+    run = session.set({
+      ...run,
+      stalls: stalled ? run.stalls + 1 : run.stalls,
+      nudges: run.nudges + 1,
+    });
     if (run.stalls >= config.maxStalls || run.nudges > config.maxNudges) {
-      const why = run.stalls >= config.maxStalls ? `stopped ${run.stalls + 1} times without progress` : `needed more than ${config.maxNudges} continuations`;
+      const why =
+        run.stalls >= config.maxStalls
+          ? `stopped ${run.stalls + 1} times without progress`
+          : `needed more than ${config.maxNudges} continuations`;
       const ended = session.set(finish(run, "incomplete", `The agent ${why}. ${nextStep(run)}`));
       session.settledRevision = ended.revision;
       return post(ended);
     }
-    const instruction = run.status === "routing" ? "Call compose_test_start with the workflow and targets." : nextStep(run);
+    const instruction =
+      run.status === "routing"
+        ? "Call compose_test_start with the workflow and targets."
+        : nextStep(run);
     showStatus(ctx, session);
-    return { entries: [...(entries as never[]), gateEntry(`compose-test is not finished, so do not report completion. ${instruction}`)], continue: true };
+    return {
+      entries: [
+        ...entries,
+        gateEntry(`compose-test is not finished, so do not report completion. ${instruction}`),
+      ],
+      continue: true,
+    };
   }
 }
 

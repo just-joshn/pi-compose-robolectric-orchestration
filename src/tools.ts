@@ -46,7 +46,10 @@ function reply(run: Run, message: string) {
 function commit(session: Session, before: Run, result: StepResult) {
   const now = session.run;
   if (now && now.revision !== before.revision)
-    return reply(now, `Discarded this result because the run changed while it ran (now ${now.status}).\n${result.message}`);
+    return reply(
+      now,
+      `Discarded this result because the run changed while it ran (now ${now.status}).\n${result.message}`,
+    );
   return respond(session, result);
 }
 
@@ -133,7 +136,9 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       message: Type.String(),
     }),
     async execute(_id, params, _signal, _update, ctx) {
-      return session.exclusive(async () => respond(session, addFinding(requireRun(session), params, ctx.cwd)));
+      return session.exclusive(async () =>
+        respond(session, addFinding(requireRun(session), params, ctx.cwd)),
+      );
     },
   });
 

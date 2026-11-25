@@ -1,7 +1,16 @@
 import { join } from "node:path";
 
 import { baselineContent } from "./baseline.ts";
-import { type Deps, describeRun, execute, failedCases, nextStep, readText, reject, type StepResult } from "./core.ts";
+import {
+  type Deps,
+  describeRun,
+  execute,
+  failedCases,
+  nextStep,
+  readText,
+  reject,
+  type StepResult,
+} from "./core.ts";
 import { finalize } from "./finalize.ts";
 import { categorize } from "./paths.ts";
 import { backtrack, changes } from "./progress.ts";
@@ -50,7 +59,9 @@ export async function mutate(run: Run, input: MutationInput, deps: Deps): Promis
   const record = { ...input, runId: r.id, tree, detected, restored };
   const withRecord = revise(next, { mutations: [...next.mutations, record] });
   if (!restored) {
-    const reason = conflicts.length ? conflictMessage(conflicts) : `The tree differs after restoring ${input.file}.`;
+    const reason = conflicts.length
+      ? conflictMessage(conflicts)
+      : `The tree differs after restoring ${input.file}.`;
     return { run: finish(withRecord, "incomplete", reason), message: reason };
   }
   if (r.outcome === "build-error")
@@ -95,17 +106,24 @@ export async function regressionCheck(run: Run, deps: Deps): Promise<StepResult>
   );
   const [next, r]: [Run, TestRun] = value;
   if (conflicts.length || digest(fingerprint(deps.cwd)) !== tree) {
-    const reason = conflicts.length ? conflictMessage(conflicts) : "The tree differs after the regression check.";
+    const reason = conflicts.length
+      ? conflictMessage(conflicts)
+      : "The tree differs after the regression check.";
     return { run: finish(next, "incomplete", reason), message: reason };
   }
   if (r.outcome === "failed" && failedCases(r).length > 0)
-    return complete(next, deps, `The tests fail on the original production code, so the fix is what makes them pass.\n${describeRun(r)}`);
+    return complete(
+      next,
+      deps,
+      `The tests fail on the original production code, so the fix is what makes them pass.\n${describeRun(r)}`,
+    );
   if (r.outcome === "build-error")
     return {
       run: next,
       message: `${describeRun(r)}\nThe tests do not compile against the original production code. Prove detection with compose_test_mutate instead.`,
     };
-  const reason = "The tests also pass on the original production code, so they do not prove the fix.";
+  const reason =
+    "The tests also pass on the original production code, so they do not prove the fix.";
   const back = backtrack(next, reason, deps.config);
   return { run: back, message: `${describeRun(r)}\n${reason}\n${nextStep(back)}` };
 }

@@ -13,9 +13,9 @@ import { className, gradleCommand, resolveTarget } from "../src/project.ts";
 import { report, statusLine } from "../src/report.ts";
 import { runTargets } from "../src/runner.ts";
 import { addRun, finish, lastRun, newRun, parseRun, terminal } from "../src/state.ts";
+import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
 import { changedPaths, digest, fingerprint } from "../src/tree.ts";
 import { isWorkflowId, routingTable, workflowIds, workflows } from "../src/workflows.ts";
-import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
 import { acquireLock, releaseLock, stateDir } from "../src/workspace.ts";
 import { fakeGradle, git, MAIN_FILE, passingTest, TEST_FILE, workspace, write } from "./helpers.ts";
 
@@ -263,16 +263,25 @@ describe("workspace state", () => {
     const a = join(root, "A.kt");
     const b = join(root, "B.kt");
     writeFileSync(a, "original");
-    const { conflicts } = await withSwappedFiles(dir, [{ path: a, content: Buffer.from("mutated") }, { path: b, content: Buffer.from("new") }], async () => {
-      expect(readFileSync(a, "utf8")).toBe("mutated");
-      writeFileSync(b, "edited meanwhile");
-    });
+    const { conflicts } = await withSwappedFiles(
+      dir,
+      [
+        { path: a, content: Buffer.from("mutated") },
+        { path: b, content: Buffer.from("new") },
+      ],
+      async () => {
+        expect(readFileSync(a, "utf8")).toBe("mutated");
+        writeFileSync(b, "edited meanwhile");
+      },
+    );
     expect(readFileSync(a, "utf8")).toBe("original");
     expect(readFileSync(b, "utf8")).toBe("edited meanwhile");
     expect(conflicts).toEqual([b]);
-    await expect(withSwappedFiles(dir, [{ path: a, content: null }], async () => {
-      throw new Error("boom");
-    })).rejects.toThrow("boom");
+    await expect(
+      withSwappedFiles(dir, [{ path: a, content: null }], async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
     expect(readFileSync(a, "utf8")).toBe("original");
   });
 
@@ -280,7 +289,13 @@ describe("workspace state", () => {
     const dir = stateDir("/crash/workspace", env);
     const file = join(mkdtempSync(join(tmpdir(), "compose-test-mut-")), "Foo.kt");
     writeFileSync(file, "mutated");
-    const record = [{ path: file, original: Buffer.from("original").toString("base64"), written: createHash("sha256").update("mutated").digest("hex") }];
+    const record = [
+      {
+        path: file,
+        original: Buffer.from("original").toString("base64"),
+        written: createHash("sha256").update("mutated").digest("hex"),
+      },
+    ];
     writeFileSync(join(dir, "swap.json"), JSON.stringify(record));
     expect(recoverSwap(dir)).toEqual({ restored: [file], conflicts: [] });
     expect(readFileSync(file, "utf8")).toBe("original");

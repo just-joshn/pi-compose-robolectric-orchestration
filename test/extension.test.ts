@@ -53,7 +53,7 @@ describe("extension", () => {
     expect(done.details["status"]).toBe("verified");
 
     const final = await h.settle();
-    const posted = (final?.["entries"] as { content: string }[])[0]?.content ?? "";
+    const posted = (final?.["entries"] as { content: string }[] | undefined)?.[0]?.content ?? "";
     expect(posted).toContain("compose-test status: VERIFIED");
     expect(final?.["continue"]).toBeUndefined();
     expect(await h.settle()).toBeUndefined();
@@ -72,7 +72,9 @@ describe("extension", () => {
     expect(await h.settle()).toMatchObject({ continue: true });
     const last = await h.settle();
     expect(last?.["continue"]).toBeUndefined();
-    expect((last?.["entries"] as { content: string }[])[0]?.content).toContain("INCOMPLETE");
+    expect((last?.["entries"] as { content: string }[] | undefined)?.[0]?.content).toContain(
+      "INCOMPLETE",
+    );
   });
 
   it("records reads for findings workflows and restores state from the session branch", async () => {

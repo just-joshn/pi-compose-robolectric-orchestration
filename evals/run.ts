@@ -5,12 +5,28 @@
  *   bun evals/run.ts [--only id,id] [--model provider/id] [--concurrency 3] [--out dir]
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { type Check, check, type Metrics, type Outcome, prepare, repo, runPi } from "./harness.ts";
+import {
+  type Check,
+  check,
+  type Metrics,
+  type Outcome,
+  prepare,
+  repo,
+  runPi,
+  text,
+} from "./harness.ts";
 import { type Scenario, scenarios } from "./scenarios.ts";
 
 const { values } = parseArgs({
@@ -25,7 +41,9 @@ const { values } = parseArgs({
 
 const work = mkdtempSync(join(tmpdir(), "compose-test-eval-"));
 const timeoutSeconds = Number(values.timeout);
-const selected = values.only ? scenarios.filter((s) => values.only?.split(",").includes(s.id)) : scenarios;
+const selected = values.only
+  ? scenarios.filter((s) => values.only?.split(",").includes(s.id))
+  : scenarios;
 
 function installedAgentDir(): string {
   const agentDir = join(work, "agent");
@@ -34,8 +52,16 @@ function installedAgentDir(): string {
     const source = join(homedir(), ".pi", "agent", file);
     if (existsSync(source)) copyFileSync(source, join(agentDir, file));
   }
-  const user = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8")) as Record<string, unknown>;
-  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: user["defaultProvider"], defaultModel: user["defaultModel"] }));
+  const user = JSON.parse(
+    readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8"),
+  ) as Record<string, unknown>;
+  writeFileSync(
+    join(agentDir, "settings.json"),
+    JSON.stringify({
+      defaultProvider: user["defaultProvider"],
+      defaultModel: user["defaultModel"],
+    }),
+  );
   return agentDir;
 }
 
@@ -44,8 +70,16 @@ function install(agentDir: string): Check[] {
   const installed = spawnSync("pi", ["install", repo], { env, encoding: "utf8" });
   const listed = spawnSync("pi", ["list"], { env, encoding: "utf8" });
   return [
-    check("pi install exits 0", installed.status === 0, `${installed.stdout}${installed.stderr}`.trim().slice(-300)),
-    check("pi list shows the package", listed.stdout.includes(repo), listed.stdout.trim().slice(-300)),
+    check(
+      "pi install exits 0",
+      installed.status === 0,
+      `${installed.stdout}${installed.stderr}`.trim().slice(-300),
+    ),
+    check(
+      "pi list shows the package",
+      listed.stdout.includes(repo),
+      listed.stdout.trim().slice(-300),
+    ),
   ];
 }
 
@@ -53,7 +87,10 @@ const sum = (a: Metrics, b: Metrics): Metrics => ({
   turns: a.turns + b.turns,
   toolCalls: a.toolCalls + b.toolCalls,
   toolsByName: Object.fromEntries(
-    [...new Set([...Object.keys(a.toolsByName), ...Object.keys(b.toolsByName)])].map((k) => [k, (a.toolsByName[k] ?? 0) + (b.toolsByName[k] ?? 0)]),
+    [...new Set([...Object.keys(a.toolsByName), ...Object.keys(b.toolsByName)])].map((k) => [
+      k,
+      (a.toolsByName[k] ?? 0) + (b.toolsByName[k] ?? 0),
+    ]),
   ),
   inputTokens: a.inputTokens + b.inputTokens,
   outputTokens: a.outputTokens + b.outputTokens,
@@ -70,7 +107,10 @@ async function execute(scenario: Scenario): Promise<{ outcome: Outcome; extra: C
   if (scenario.mode === "installed") {
     const agentDir = installedAgentDir();
     const extra = install(agentDir);
-    return { outcome: await runPi(dir, scenario.prompt, { ...base, installed: { agentDir } }), extra };
+    return {
+      outcome: await runPi(dir, scenario.prompt, { ...base, installed: { agentDir } }),
+      extra,
+    };
   }
   if (scenario.mode === "resume") {
     const sessionDir = join(work, `${scenario.id}.sessions`);
@@ -81,8 +121,22 @@ async function execute(scenario: Scenario): Promise<{ outcome: Outcome; extra: C
     });
     const interrupted = first.state?.["status"] === "active";
     const second = await runPi(dir, "Continue.", { ...base, sessionDir, continueSession: true });
-    const outcome = { ...second, state: second.state ?? first.state, wallSeconds: first.wallSeconds + second.wallSeconds, metrics: sum(first.metrics, second.metrics) };
-    return { outcome, extra: [check("first process was interrupted mid-workflow", interrupted, String(first.state?.["status"]))] };
+    const outcome = {
+      ...second,
+      state: second.state ?? first.state,
+      wallSeconds: first.wallSeconds + second.wallSeconds,
+      metrics: sum(first.metrics, second.metrics),
+    };
+    return {
+      outcome,
+      extra: [
+        check(
+          "first process was interrupted mid-workflow",
+          interrupted,
+          String(first.state?.["status"]),
+        ),
+      ],
+    };
   }
   return { outcome: await runPi(dir, scenario.prompt, base), extra: [] };
 }
@@ -107,18 +161,25 @@ async function evaluate(scenario: Scenario): Promise<Result> {
     category: scenario.category,
     pass: checks.every((c) => c.pass),
     checks,
-    status: String(outcome.state?.["status"] ?? "none"),
-    workflow: String(outcome.state?.["workflow"] ?? "none"),
+    status: text(outcome.state?.["status"]),
+    workflow: text(outcome.state?.["workflow"]),
     wallSeconds: Math.round(outcome.wallSeconds),
     metrics: outcome.metrics,
     dir: outcome.dir,
   };
-  process.stdout.write(`${result.pass ? "PASS" : "FAIL"} ${scenario.id} (${result.status}, ${result.wallSeconds}s)\n`);
-  for (const c of checks.filter((x) => !x.pass)) process.stdout.write(`  ✗ ${c.name} ${c.detail ?? ""}\n`);
+  process.stdout.write(
+    `${result.pass ? "PASS" : "FAIL"} ${scenario.id} (${result.status}, ${result.wallSeconds}s)\n`,
+  );
+  for (const c of checks.filter((x) => !x.pass))
+    process.stdout.write(`  ✗ ${c.name} ${c.detail ?? ""}\n`);
   return result;
 }
 
-async function pool<T, R>(items: readonly T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+async function pool<T, R>(
+  items: readonly T[],
+  size: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
   const results: R[] = [];
   let next = 0;
   const worker = async () => {
@@ -137,7 +198,9 @@ function markdown(results: readonly Result[], model: string) {
     const m = r.metrics;
     return `| ${r.id} | ${r.category} | ${r.pass ? "PASS" : "FAIL"} | ${r.workflow} | ${r.status} | ${r.wallSeconds} | ${m.turns} | ${m.toolCalls} | ${m.gradleRuns} | ${m.gateNudges} | ${m.inputTokens} | ${m.cacheReadTokens} | ${m.outputTokens} |`;
   });
-  const failures = results.flatMap((r) => r.checks.filter((c) => !c.pass).map((c) => `- ${r.id}: ${c.name} ${c.detail ?? ""}`));
+  const failures = results.flatMap((r) =>
+    r.checks.filter((c) => !c.pass).map((c) => `- ${r.id}: ${c.name} ${c.detail ?? ""}`),
+  );
   return [
     `# Evaluation results`,
     "",

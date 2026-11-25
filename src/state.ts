@@ -6,13 +6,7 @@ import type { Fingerprint } from "./tree.ts";
 import { isWorkflowId, type Phase, type WorkflowId, workflows } from "./workflows.ts";
 
 export type RunPurpose =
-  | "verify"
-  | "reproduce"
-  | "mutation"
-  | "regression"
-  | "probe"
-  | "stress"
-  | "measure";
+  "verify" | "reproduce" | "mutation" | "regression" | "probe" | "stress" | "measure";
 
 export interface TestRun {
   readonly id: number;
@@ -145,7 +139,7 @@ export const addRun = (run: Run, testRun: Omit<TestRun, "id">): [Run, TestRun] =
 };
 
 export const lastRun = (run: Run, purpose?: RunPurpose) =>
-  [...run.runs].reverse().find((r) => purpose === undefined || r.purpose === purpose);
+  run.runs.findLast((r) => purpose === undefined || r.purpose === purpose);
 
 export const errorFindings = (findings: readonly LintFinding[]) =>
   findings.filter((f) => f.severity === ("error" satisfies Severity));
@@ -163,10 +157,16 @@ export function parseRun(value: unknown): Run | null {
   const status = value["status"];
   if (!STATUSES.some((s) => s === status)) return null;
   const phaseIndex = value["phaseIndex"];
-  if (typeof value["goal"] !== "string" || typeof phaseIndex !== "number" || !Number.isInteger(phaseIndex)) return null;
+  if (
+    typeof value["goal"] !== "string" ||
+    typeof phaseIndex !== "number" ||
+    !Number.isInteger(phaseIndex)
+  )
+    return null;
   const phases = workflow === null ? 0 : workflows[workflow].phases.length;
   const limit = status === "active" ? phases - 1 : phases;
-  if (phaseIndex < 0 || phaseIndex > limit || (status === "active" && workflow === null)) return null;
+  if (phaseIndex < 0 || phaseIndex > limit || (status === "active" && workflow === null))
+    return null;
   if (!Array.isArray(value["runs"]) || !Array.isArray(value["targets"])) return null;
   return { nudges: 0, reported: -1, snapshot: null, ...value } as unknown as Run;
 }

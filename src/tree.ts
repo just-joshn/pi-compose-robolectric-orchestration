@@ -1,6 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 
 import { categorize } from "./paths.ts";
@@ -75,16 +82,33 @@ function hiddenPaths(cwd: string): string[] {
     .split("\0")
     .filter((entry) => /^[a-zS] /.test(entry))
     .map((entry) => entry.slice(2));
-  const ignored = (git(cwd, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory", "--", "."]) ?? "")
+  const ignored = (
+    git(cwd, [
+      "ls-files",
+      "-z",
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+      "--directory",
+      "--",
+      ".",
+    ]) ?? ""
+  )
     .split("\0")
     .filter(Boolean)
     .flatMap((entry) => (entry.endsWith("/") ? expandIgnoredDir(cwd, entry) : [entry]))
-    .filter((path) => categorize(path) !== "other" && !/(^|\/)(build|\.gradle|\.kotlin)\//.test(path));
+    .filter(
+      (path) => categorize(path) !== "other" && !/(^|\/)(build|\.gradle|\.kotlin)\//.test(path),
+    );
   return [...flagged, ...ignored];
 }
 
 function expandIgnoredDir(cwd: string, dir: string): string[] {
-  if (/(^|\/)(build|\.gradle|\.kotlin|\.idea|node_modules|\.cxx)\/$/.test(dir) || categorize(`${dir}x.kt`) === "other") return [];
+  if (
+    /(^|\/)(build|\.gradle|\.kotlin|\.idea|node_modules|\.cxx)\/$/.test(dir) ||
+    categorize(`${dir}x.kt`) === "other"
+  )
+    return [];
   const out: Record<string, string> = {};
   walk(cwd, join(cwd, dir), out);
   return Object.keys(out);
@@ -100,7 +124,8 @@ export function fingerprint(cwd: string): Fingerprint {
     return { head: null, files };
   }
   const files: Record<string, string> = {};
-  for (const path of [...dirtyPaths(cwd, top, status), ...hiddenPaths(cwd)]) files[path] = hashFile(join(cwd, path));
+  for (const path of [...dirtyPaths(cwd, top, status), ...hiddenPaths(cwd)])
+    files[path] = hashFile(join(cwd, path));
   return { head, files };
 }
 
@@ -111,18 +136,21 @@ export function changedPaths(cwd: string, a: Fingerprint, b: Fingerprint): strin
     if (a.files[path] !== b.files[path]) changed.add(path);
   }
   if (a.head !== b.head && a.head && b.head) {
-    const diff = git(cwd, ["diff", "--relative", "--no-renames", "--name-only", a.head, b.head]) ?? "";
+    const diff =
+      git(cwd, ["diff", "--relative", "--no-renames", "--name-only", a.head, b.head]) ?? "";
     for (const path of diff.split("\n").filter(Boolean)) {
       const sameDirty = a.files[path] !== undefined && a.files[path] === b.files[path];
       if (!sameDirty) changed.add(path);
     }
   }
-  return [...changed].sort();
+  return [...changed].toSorted();
 }
 
 export const digest = (fp: Fingerprint) =>
   createHash("sha256")
     .update(fp.head ?? "")
-    .update(JSON.stringify(Object.entries(fp.files).toSorted(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))))
+    .update(
+      JSON.stringify(Object.entries(fp.files).toSorted(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))),
+    )
     .digest("hex")
     .slice(0, 16);

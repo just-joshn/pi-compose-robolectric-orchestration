@@ -17,7 +17,8 @@ interface PendingFile {
 }
 
 const PENDING = "swap.json";
-const sha = (data: Buffer | null) => (data ? createHash("sha256").update(data).digest("hex") : null);
+const sha = (data: Buffer | null) =>
+  data ? createHash("sha256").update(data).digest("hex") : null;
 const current = (path: string) => (existsSync(path) ? readFileSync(path) : null);
 
 function put(path: string, content: Buffer | null) {
@@ -29,7 +30,10 @@ function put(path: string, content: Buffer | null) {
  * Put each file back only if it still holds what the extension wrote. A file someone else changed
  * meanwhile is left alone and its original is saved next to the pending record.
  */
-function restore(dir: string, files: readonly PendingFile[]): { restored: string[]; conflicts: string[] } {
+function restore(
+  dir: string,
+  files: readonly PendingFile[],
+): { restored: string[]; conflicts: string[] } {
   const restored: string[] = [];
   const conflicts: string[] = [];
   for (const file of files) {

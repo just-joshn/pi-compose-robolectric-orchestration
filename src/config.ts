@@ -38,9 +38,8 @@ const positiveInteger = (value: unknown) =>
 export function parseConfig(value: unknown, origin: string): Partial<Config> {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new Error(`${origin}: expected a JSON object.`);
-  const input = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(input)) {
+  for (const [key, raw] of Object.entries(value)) {
     const valid =
       key === "gradle" || key === "unitTestTask"
         ? typeof raw === "string" && raw.length > 0
@@ -71,7 +70,10 @@ export function loadConfig(cwd: string, projectTrusted: boolean, env = process.e
 }
 
 /** Config for code paths that must not fail, such as the settle gate: errors fall back to defaults. */
-export function safeConfig(cwd: string, projectTrusted: boolean): { config: Config; error?: string } {
+export function safeConfig(
+  cwd: string,
+  projectTrusted: boolean,
+): { config: Config; error?: string } {
   try {
     return { config: loadConfig(cwd, projectTrusted) };
   } catch (error) {

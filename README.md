@@ -21,15 +21,15 @@ compose-test status: INCOMPLETE   the agent stopped, ran out of retries, or was 
 The model does the creative work: reading code, writing tests, finding root causes. The
 extension owns everything that decides the outcome:
 
-| Decision | Who makes it |
-|---|---|
-| Which step comes next | The extension's state machine (`src/workflows.ts`) |
+| Decision                      | Who makes it                                                                                                         |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Which step comes next         | The extension's state machine (`src/workflows.ts`)                                                                   |
 | Which files a step may change | The extension blocks `edit`/`write` outside the step's scope and re-checks the whole tree with git before every step |
-| Whether tests pass | The extension runs Gradle with `--rerun` and reads the JUnit XML that run wrote |
-| Whether tests can catch a bug | The extension applies the model's proposed break, runs the tests, requires a failure, and restores the file |
-| Whether a fix is real | fix-failing runs the final tests against the original production code and requires them to fail there |
-| Whether tests were weakened | Lost `@Test` functions, new `@Ignore`, or deleted test files block the run |
-| The final status | Built from recorded runs only (`src/report.ts`). Model prose cannot change it |
+| Whether tests pass            | The extension runs Gradle with `--rerun` and reads the JUnit XML that run wrote                                      |
+| Whether tests can catch a bug | The extension applies the model's proposed break, runs the tests, requires a failure, and restores the file          |
+| Whether a fix is real         | fix-failing runs the final tests against the original production code and requires them to fail there                |
+| Whether tests were weakened   | Lost `@Test` functions, new `@Ignore`, or deleted test files block the run                                           |
+| The final status              | Built from recorded runs only (`src/report.ts`). Model prose cannot change it                                        |
 
 What code cannot guarantee: that the model finishes, or that it writes the best possible test. If
 it stops, crashes, or runs out of retries, the status is INCOMPLETE, never VERIFIED. A test can
@@ -58,18 +58,18 @@ To try it once without installing: `pi -e ./src/index.ts --skill ./skills`.
 /compose-test cancel                                     end the run as INCOMPLETE
 ```
 
-| Workflow | Use it for | Steps the extension enforces |
-|---|---|---|
-| `write-test` | New tests for existing or new behavior | explore, write (tests only), verify, negative control |
-| `setup` | Adding Robolectric + Compose test infrastructure | explore, configure (build + tests only), verify, negative control |
-| `fix-failing` | A failing test | reproduce (must fail), root cause, fix, verify the whole class, regression check |
-| `fix-flaky` | An intermittent test | probe N runs, cause, fix, N consecutive passes, negative control |
-| `refactor` | Simplifying tests without losing what they verify | passing baseline, edit (tests only), verify, negative control |
-| `performance` | Faster tests | measured baseline, optimize, measured after (min. speedup), all baseline tests pass |
-| `migrate` | androidTest → Robolectric | explore, migrate (at least as many cases), verify, negative control |
-| `review` | Reviewing test changes | read every target, record findings, extension lint |
-| `audit` | Checking tests against best practices | read every target, record findings, extension lint |
-| `coverage-gaps` | Finding untested behavior | read every target, record findings |
+| Workflow        | Use it for                                        | Steps the extension enforces                                                        |
+| --------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `write-test`    | New tests for existing or new behavior            | explore, write (tests only), verify, negative control                               |
+| `setup`         | Adding Robolectric + Compose test infrastructure  | explore, configure (build + tests only), verify, negative control                   |
+| `fix-failing`   | A failing test                                    | reproduce (must fail), root cause, fix, verify the whole class, regression check    |
+| `fix-flaky`     | An intermittent test                              | probe N runs, cause, fix, N consecutive passes, negative control                    |
+| `refactor`      | Simplifying tests without losing what they verify | passing baseline, edit (tests only), verify, negative control                       |
+| `performance`   | Faster tests                                      | measured baseline, optimize, measured after (min. speedup), all baseline tests pass |
+| `migrate`       | androidTest → Robolectric                         | explore, migrate (at least as many cases), verify, negative control                 |
+| `review`        | Reviewing test changes                            | read every target, record findings, extension lint                                  |
+| `audit`         | Checking tests against best practices             | read every target, record findings, extension lint                                  |
+| `coverage-gaps` | Finding untested behavior                         | read every target, record findings                                                  |
 
 The methodology the agent follows is the `compose-robolectric` skill
 (`skills/compose-robolectric/SKILL.md`). It is grounded in developer.android.com and
@@ -82,17 +82,17 @@ Optional JSON files: `~/.pi/agent/compose-test.json` (global) and `<project>/.pi
 (read only for trusted projects, since it can name the Gradle executable). The
 `COMPOSE_TEST_GRADLE` environment variable overrides `gradle`.
 
-| Key | Default | Meaning |
-|---|---|---|
-| `gradle` | wrapper, else `gradle` | Gradle executable when the project has no `gradlew` |
-| `unitTestTask` | `testDebugUnitTest` | Unit test task per module |
-| `timeoutSeconds` | `1200` | Per Gradle invocation |
-| `stressRuns` | `5` | Runs in the fix-flaky probe and stress steps |
-| `measureRuns` | `3` | Runs per measurement in performance |
-| `minSpeedup` | `0.05` | Required median speedup for performance |
-| `maxStalls` | `3` | Stops without progress before INCOMPLETE |
-| `maxNudges` | `8` | Continuations per run before INCOMPLETE |
-| `maxBacktracks` | `3` | Failed checks that return to an edit step before INCOMPLETE |
+| Key              | Default                | Meaning                                                     |
+| ---------------- | ---------------------- | ----------------------------------------------------------- |
+| `gradle`         | wrapper, else `gradle` | Gradle executable when the project has no `gradlew`         |
+| `unitTestTask`   | `testDebugUnitTest`    | Unit test task per module                                   |
+| `timeoutSeconds` | `1200`                 | Per Gradle invocation                                       |
+| `stressRuns`     | `5`                    | Runs in the fix-flaky probe and stress steps                |
+| `measureRuns`    | `3`                    | Runs per measurement in performance                         |
+| `minSpeedup`     | `0.05`                 | Required median speedup for performance                     |
+| `maxStalls`      | `3`                    | Stops without progress before INCOMPLETE                    |
+| `maxNudges`      | `8`                    | Continuations per run before INCOMPLETE                     |
+| `maxBacktracks`  | `3`                    | Failed checks that return to an edit step before INCOMPLETE |
 
 The package does not choose models. It uses whatever model the Pi session runs.
 

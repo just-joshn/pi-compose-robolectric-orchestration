@@ -3,14 +3,21 @@ import { join } from "node:path";
 
 import { saveSnapshot, weakenedTests } from "./baseline.ts";
 import { regressionCheck } from "./controls.ts";
-import { type Deps, describeRun, execute, nextStep, readText, reject, type StepResult } from "./core.ts";
+import {
+  type Deps,
+  describeRun,
+  execute,
+  nextStep,
+  readText,
+  reject,
+  type StepResult,
+} from "./core.ts";
 import { finalize } from "./finalize.ts";
 import { countIgnores, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isKotlinOrJava, isLocalTestPath } from "./paths.ts";
 import { backtrack, changes, scopeViolations } from "./progress.ts";
 import type { Target } from "./project.ts";
 import {
-  addRun,
   advance,
   currentPhase,
   errorFindings,
@@ -28,7 +35,14 @@ import { stateDir } from "./workspace.ts";
 export { mutate } from "./controls.ts";
 export { type Deps, nextStep, type StepResult, WorkflowError } from "./core.ts";
 
-const RUN_KINDS = new Set(["verify-pass", "reproduce-fail", "regression", "probe", "stress", "measure"]);
+const RUN_KINDS = new Set([
+  "verify-pass",
+  "reproduce-fail",
+  "regression",
+  "probe",
+  "stress",
+  "measure",
+]);
 
 export interface StartInput {
   readonly workflow: WorkflowId;
@@ -118,7 +132,13 @@ function completeEdit(run: Run, note: string | undefined, deps: Deps): StepResul
     );
   if (run.baseline) {
     const exempt = new Set(run.workflow === "refactor" ? run.targets.map((t) => t.file) : []);
-    const weakened = weakenedTests(deps.cwd, run.baseline, run.snapshot, changes(run, deps.cwd), exempt);
+    const weakened = weakenedTests(
+      deps.cwd,
+      run.baseline,
+      run.snapshot,
+      changes(run, deps.cwd),
+      exempt,
+    );
     if (weakened.length) reject(`Tests may not be weakened: ${weakened.join("; ")}. Restore them.`);
   }
   if (run.source) {
@@ -153,7 +173,7 @@ function completeFindings(run: Run, deps: Deps): StepResult {
   const lint: Finding[] = run.targets
     .filter((t) => isKotlinOrJava(t.file) && categorize(t.file) === "test")
     .flatMap((t) => lintTestSource(t.file, readText(deps.cwd, t.file)))
-    .map((f) => ({ ...f, source: "lint" }));
+    .map((f): Finding => Object.assign({}, f, { source: "lint" as const }));
   return {
     run: advance(revise(run, { findings: [...run.findings, ...lint] })),
     message: `Added ${lint.length} lint findings.`,
@@ -161,7 +181,7 @@ function completeFindings(run: Run, deps: Deps): StepResult {
 }
 
 const median = (values: readonly number[]) => {
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = values.toSorted((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 };
 export const testSeconds = (r: TestRun) => r.cases.reduce((sum, c) => sum + c.seconds, 0);
@@ -305,7 +325,11 @@ export function addFinding(run: Run, finding: Omit<Finding, "source">, cwd: stri
   if (!Number.isInteger(finding.line) || finding.line < 1 || finding.line > lines)
     reject(`${finding.file} has ${lines} lines; line ${finding.line} is out of range.`);
   const duplicate = run.findings.some(
-    (f) => f.file === finding.file && f.line === finding.line && f.rule === finding.rule && f.message === finding.message,
+    (f) =>
+      f.file === finding.file &&
+      f.line === finding.line &&
+      f.rule === finding.rule &&
+      f.message === finding.message,
   );
   if (duplicate) return { run, message: "This finding is already recorded." };
   return {

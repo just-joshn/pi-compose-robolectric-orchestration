@@ -49,7 +49,9 @@ function reportFiles(target: ResolvedTarget, task: string): string[] {
   const dir = resultsDir(target, task);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => f === `TEST-${target.className}.xml` || f.startsWith(`TEST-${target.className}$`))
+    .filter(
+      (f) => f === `TEST-${target.className}.xml` || f.startsWith(`TEST-${target.className}$`),
+    )
     .map((f) => join(dir, f));
 }
 
@@ -71,7 +73,8 @@ const tail = (text: string) =>
 
 /** Every target must have produced at least one case; a missing one cannot hide behind another. */
 function outcomeOf(exitCode: number, perTarget: readonly (readonly TestCase[])[]): RunOutcome {
-  if (perTarget.some((cases) => cases.length === 0)) return exitCode === 0 ? "no-tests" : "build-error";
+  if (perTarget.some((cases) => cases.length === 0))
+    return exitCode === 0 ? "no-tests" : "build-error";
   if (perTarget.some((cases) => cases.some((c) => c.status === "failed"))) return "failed";
   return exitCode === 0 ? "passed" : "build-error";
 }

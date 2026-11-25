@@ -2,8 +2,15 @@
  * Regression tests for the adversarial review findings (docs/review.md). Each test is named after
  * its finding id and asserts the behavior the intent requires.
  */
-import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,19 +19,35 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { mutate, start, step } from "../src/engine.ts";
 import { lintTestSource } from "../src/lint.ts";
 import { resolveTarget } from "../src/project.ts";
-import { runTargets, type Exec } from "../src/runner.ts";
-import { newRun, parseRun, type Run } from "../src/state.ts";
+import { type Exec, runTargets } from "../src/runner.ts";
 import { STATE_ENTRY } from "../src/session.ts";
+import { newRun, parseRun, type Run } from "../src/state.ts";
 import { changedPaths, fingerprint } from "../src/tree.ts";
 import { stateDir } from "../src/workspace.ts";
-import { behavior, deps, fakeGradle, git, MAIN_FILE, passingTest, read, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
+import {
+  behavior,
+  deps,
+  fakeGradle,
+  git,
+  MAIN_FILE,
+  passingTest,
+  read,
+  RESULT_XML,
+  TEST_FILE,
+  workspace,
+  write,
+} from "./helpers.ts";
 import { harness } from "./pi-harness.ts";
 
 const BREAK = { file: MAIN_FILE, find: '"Hello"', replace: '"BROKEN"' };
 
 async function verifiedWriteTest(root: string, exec: Exec = fakeGradle(root, behavior).exec) {
   const d = deps(root, exec);
-  let run: Run = start(newRun("goal", null), { workflow: "write-test", targets: [{ file: TEST_FILE }] }, root).run;
+  let run: Run = start(
+    newRun("goal", null),
+    { workflow: "write-test", targets: [{ file: TEST_FILE }] },
+    root,
+  ).run;
   run = (await step(run, "Shows the greeting text to the user.", d)).run;
   write(root, TEST_FILE, passingTest);
   return { run, d };
@@ -86,12 +109,20 @@ describe("gate integrity", () => {
 
   it("I4: deleting a non-target test file is never verified", async () => {
     const root = workspace();
-    write(root, "app/src/test/java/a/OtherTest.kt", passingTest.replace("class FooTest", "class OtherTest"));
+    write(
+      root,
+      "app/src/test/java/a/OtherTest.kt",
+      passingTest.replace("class FooTest", "class OtherTest"),
+    );
     git(root, "add", "-A");
     git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "other");
     write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
     const d = deps(root, fakeGradle(root, behavior).exec);
-    let run = start(newRun("g", null), { workflow: "fix-failing", targets: [{ file: TEST_FILE }] }, root).run;
+    let run = start(
+      newRun("g", null),
+      { workflow: "fix-failing", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
     run = (await step(run, undefined, d)).run;
     run = (await step(run, "greeting() returns the wrong text.", d)).run;
     rmSync(join(root, "app/src/test/java/a/OtherTest.kt"));
@@ -103,12 +134,25 @@ describe("gate integrity", () => {
     const root = workspace();
     write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
     const decide = (main: string, test: string) =>
-      test.includes('onNodeWithText("Hello").assertIsDisplayed') && main.includes("BROKEN") ? "fail" : "pass";
+      test.includes('onNodeWithText("Hello").assertIsDisplayed') && main.includes("BROKEN")
+        ? "fail"
+        : "pass";
     const d = deps(root, fakeGradle(root, decide).exec);
-    let run = start(newRun("g", null), { workflow: "fix-failing", targets: [{ file: TEST_FILE }] }, root).run;
+    let run = start(
+      newRun("g", null),
+      { workflow: "fix-failing", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
     run = (await step(run, undefined, d)).run;
     run = (await step(run, "greeting() returns the wrong text.", d)).run;
-    write(root, TEST_FILE, passingTest.replace('rule.onNodeWithText("Hello").assertIsDisplayed()', 'rule.onNodeWithText("Hello").assertExists()'));
+    write(
+      root,
+      TEST_FILE,
+      passingTest.replace(
+        'rule.onNodeWithText("Hello").assertIsDisplayed()',
+        'rule.onNodeWithText("Hello").assertExists()',
+      ),
+    );
     const result = await step(run, undefined, d);
     expect(result.run.status).not.toBe("verified");
   });
@@ -118,7 +162,11 @@ describe("gate integrity", () => {
     write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
     git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "bug");
     const d = deps(root, fakeGradle(root, behavior).exec);
-    let run = start(newRun("g", null), { workflow: "fix-failing", targets: [{ file: TEST_FILE }] }, root).run;
+    let run = start(
+      newRun("g", null),
+      { workflow: "fix-failing", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
     run = (await step(run, undefined, d)).run;
     run = (await step(run, "greeting() returns the wrong text.", d)).run;
     write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
@@ -131,31 +179,54 @@ describe("gate integrity", () => {
 describe("runner and project", () => {
   it("R1/R2: the test class is the one with @Test, wherever its annotations sit", () => {
     const root = workspace();
-    write(root, "app/src/test/java/a/FooTest.kt", "package a\n\nobject Fixtures { val x = 1 }\n\nclass FooTest {\n  @Test fun t() {}\n}\n");
-    expect(resolveTarget(root, { file: "app/src/test/java/a/FooTest.kt" }).className).toBe("a.FooTest");
-    write(root, "app/src/test/java/a/Renamed.kt", "package a\n@Config(sdk = [33]) class ActualName {\n  @Test fun t() {}\n}\n");
-    expect(resolveTarget(root, { file: "app/src/test/java/a/Renamed.kt" }).className).toBe("a.ActualName");
+    write(
+      root,
+      "app/src/test/java/a/FooTest.kt",
+      "package a\n\nobject Fixtures { val x = 1 }\n\nclass FooTest {\n  @Test fun t() {}\n}\n",
+    );
+    expect(resolveTarget(root, { file: "app/src/test/java/a/FooTest.kt" }).className).toBe(
+      "a.FooTest",
+    );
+    write(
+      root,
+      "app/src/test/java/a/Renamed.kt",
+      "package a\n@Config(sdk = [33]) class ActualName {\n  @Test fun t() {}\n}\n",
+    );
+    expect(resolveTarget(root, { file: "app/src/test/java/a/Renamed.kt" }).className).toBe(
+      "a.ActualName",
+    );
   });
 
   it("R3: nested test class reports are read", async () => {
     const root = workspace();
     const exec: Exec = async () => {
-      write(root, "app/build/test-results/testDebugUnitTest/TEST-a.FooTest$Inner.xml",
-        '<testsuite><testcase name="t" classname="a.FooTest$Inner" time="0.1"><failure message="x" type="AssertionError"/></testcase></testsuite>');
+      write(
+        root,
+        "app/build/test-results/testDebugUnitTest/TEST-a.FooTest$Inner.xml",
+        '<testsuite><testcase name="t" classname="a.FooTest$Inner" time="0.1"><failure message="x" type="AssertionError"/></testcase></testsuite>',
+      );
       return { code: 1, stdout: "", stderr: "" };
     };
-    const result = await runTargets(exec, [resolveTarget(root, { file: TEST_FILE })], { gradle: "g", unitTestTask: "testDebugUnitTest", timeoutSeconds: 5 });
+    const result = await runTargets(exec, [resolveTarget(root, { file: TEST_FILE })], {
+      gradle: "g",
+      unitTestTask: "testDebugUnitTest",
+      timeoutSeconds: 5,
+    });
     expect(result.outcome).toBe("failed");
   });
 
   it("R5: a target that produced no test case is not hidden by another passing target", async () => {
     const root = workspace();
     const target = resolveTarget(root, { file: TEST_FILE });
-    const result = await runTargets(fakeGradle(root, () => "pass").exec, [target, { ...target, method: "doesNotExist" }], {
-      gradle: "g",
-      unitTestTask: "testDebugUnitTest",
-      timeoutSeconds: 5,
-    });
+    const result = await runTargets(
+      fakeGradle(root, () => "pass").exec,
+      [target, { ...target, method: "doesNotExist" }],
+      {
+        gradle: "g",
+        unitTestTask: "testDebugUnitTest",
+        timeoutSeconds: 5,
+      },
+    );
     expect(result.outcome).not.toBe("passed");
   });
 });
@@ -165,7 +236,10 @@ describe("fingerprint", () => {
     const root = workspace();
     const base = fingerprint(root);
     git(root, "mv", MAIN_FILE, "app/src/main/java/a/Bar.kt");
-    expect(changedPaths(root, base, fingerprint(root)).toSorted()).toEqual(["app/src/main/java/a/Bar.kt", MAIN_FILE]);
+    expect(changedPaths(root, base, fingerprint(root)).toSorted()).toEqual([
+      "app/src/main/java/a/Bar.kt",
+      MAIN_FILE,
+    ]);
   });
 
   it("T2: committed renames report the deleted path too", () => {
@@ -173,7 +247,10 @@ describe("fingerprint", () => {
     const base = fingerprint(root);
     git(root, "mv", MAIN_FILE, "app/src/main/java/a/Bar.kt");
     git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "mv");
-    expect(changedPaths(root, base, fingerprint(root)).toSorted()).toEqual(["app/src/main/java/a/Bar.kt", MAIN_FILE]);
+    expect(changedPaths(root, base, fingerprint(root)).toSorted()).toEqual([
+      "app/src/main/java/a/Bar.kt",
+      MAIN_FILE,
+    ]);
   });
 
   it("T3: symlinks are fingerprinted without git", () => {
@@ -257,7 +334,9 @@ describe("pi integration", () => {
     await h.call("compose_test_step", {});
     await h.emit("session_start", { reason: "resume" });
     const out = await h.settle();
-    expect(String((out?.["entries"] as { content: string }[] | undefined)?.[0]?.content)).toContain("compose-test status: VERIFIED");
+    expect(String((out?.["entries"] as { content: string }[] | undefined)?.[0]?.content)).toContain(
+      "compose-test status: VERIFIED",
+    );
     expect(await h.settle()).toBeUndefined();
   });
 
@@ -287,11 +366,18 @@ describe("pi integration", () => {
     await h.command("Add a test");
     await h.call("compose_test_start", { workflow: "write-test", targets: [{ file: TEST_FILE }] });
     await h.call("compose_test_step", { note: "Shows the greeting text to the user." });
-    expect(await h.emit("tool_call", { toolName: "write", input: { path: "../outside/src/test/Bad.kt" } })).toMatchObject({ block: true });
+    expect(
+      await h.emit("tool_call", {
+        toolName: "write",
+        input: { path: "../outside/src/test/Bad.kt" },
+      }),
+    ).toMatchObject({ block: true });
   });
 
   it("F8: a persisted run with an impossible phase index is rejected", () => {
-    expect(parseRun({ ...newRun("g", null), status: "active", workflow: "write-test", phaseIndex: 99 })).toBeNull();
+    expect(
+      parseRun({ ...newRun("g", null), status: "active", workflow: "write-test", phaseIndex: 99 }),
+    ).toBeNull();
     expect(STATE_ENTRY).toBe("compose-test-state");
   });
 });

@@ -11,11 +11,11 @@ export const skillDir = join(
   "compose-robolectric",
 );
 
-const methodology = () =>
-  readFileSync(join(skillDir, "SKILL.md"), "utf8")
-    .replace(/^---[\s\S]*?---\n/, "")
-    .split("## References")[0]
-    ?.trim() ?? "";
+/** The SKILL.md body up to its reference list. */
+export function methodology(): string {
+  const body = readFileSync(join(skillDir, "SKILL.md"), "utf8").replace(/^---[\s\S]*?---\n/, "");
+  return body.slice(0, body.indexOf("## References")).trim();
+}
 
 export function kickoff(goal: string, forced: WorkflowId | null): string {
   const routing = forced

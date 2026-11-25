@@ -14,7 +14,11 @@ interface Tool {
 }
 
 /** A minimal stand-in for Pi's ExtensionAPI that records what the extension does. */
-export function harness(root: string, exec: Exec = fakeGradle(root, behavior).exec, sessionId = "session-1") {
+export function harness(
+  root: string,
+  exec: Exec = fakeGradle(root, behavior).exec,
+  sessionId = "session-1",
+) {
   const handlers = new Map<string, Handler[]>();
   const tools = new Map<string, Tool>();
   const commands = new Map<
@@ -64,4 +68,3 @@ export function harness(root: string, exec: Exec = fakeGradle(root, behavior).ex
   const settle = () => emit("agent_before_settle", { entries: [], continue: false });
   return { emit, call, command, settle, entries, sent, notes, commands, ctx };
 }
-

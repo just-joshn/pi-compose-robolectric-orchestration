@@ -31,8 +31,8 @@ export const readText = (cwd: string, file: string) =>
 
 export function nextStep(run: Run): string {
   const phase = currentPhase(run);
-  if (phase) {
-    const workflow = workflows[run.workflow ?? "write-test"];
+  if (phase && run.workflow) {
+    const workflow = workflows[run.workflow];
     const why = run.statusReason ? `\nReturned to this phase because: ${run.statusReason}` : "";
     return `Phase ${run.phaseIndex + 1}/${workflow.phases.length} "${phase.id}": ${phase.instruction}${why}`;
   }
@@ -50,7 +50,8 @@ const WHOLE_CLASS: ReadonlySet<RunPurpose> = new Set(["verify", "stress", "measu
 
 function runnable(run: Run, purpose: RunPurpose, cwd: string): ResolvedTarget[] {
   const resolved = resolveAll(run, cwd);
-  if (!WHOLE_CLASS.has(purpose) || !workflows[run.workflow ?? "write-test"].preserveTests) return resolved;
+  const preserves = run.workflow !== null && workflows[run.workflow].preserveTests;
+  if (!WHOLE_CLASS.has(purpose) || !preserves) return resolved;
   return resolved.map(({ method: _method, ...whole }) => whole);
 }
 

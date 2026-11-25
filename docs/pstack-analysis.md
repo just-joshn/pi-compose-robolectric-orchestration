@@ -17,16 +17,16 @@ Almost all behavior is instructions to the model. The few executable parts are T
 `watch-pr` (PR/CI polling policy), `bootstrap.ts`, `worktree-audit.sh`, the statechart compiler,
 and log helpers.
 
-| Layer | Upstream evidence | Role |
-|---|---|---|
-| Entry point | `skills/poteto-mode/SKILL.md` (`disable-model-invocation: true`) | Single router, invoked only explicitly with `/poteto-mode` |
-| Playbooks | `skills/poteto-mode/playbooks/*.md` (22) | Ordered steps per task type, copied into the todo list |
-| Principles | `skills/principle-*/SKILL.md` (25) | Leaf rules, read only when applied, cited by name |
-| Routed skills | `swarm`, `arena`, `interrogate`, `architect`, `figure-it-out`, `unslop`, `technical-writing`, ... | Reusable procedures that playbooks call conditionally |
-| Agents | `agents/poteto-agent.md`, `comment-sicko.md` | Delegate type that re-reads the router. A comment-deletion reviewer |
-| Worker contract | `skills/poteto-mode/worker.md` | Rules every delegate must read first |
-| Model config | `setup-pstack` writes `~/.cursor/rules/pstack-models.mdc` | Per-role model and effort overrides |
-| Automations | `automations/benny` | Slack triage and repro automations (Cursor-specific) |
+| Layer           | Upstream evidence                                                                                 | Role                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Entry point     | `skills/poteto-mode/SKILL.md` (`disable-model-invocation: true`)                                  | Single router, invoked only explicitly with `/poteto-mode`          |
+| Playbooks       | `skills/poteto-mode/playbooks/*.md` (22)                                                          | Ordered steps per task type, copied into the todo list              |
+| Principles      | `skills/principle-*/SKILL.md` (25)                                                                | Leaf rules, read only when applied, cited by name                   |
+| Routed skills   | `swarm`, `arena`, `interrogate`, `architect`, `figure-it-out`, `unslop`, `technical-writing`, ... | Reusable procedures that playbooks call conditionally               |
+| Agents          | `agents/poteto-agent.md`, `comment-sicko.md`                                                      | Delegate type that re-reads the router. A comment-deletion reviewer |
+| Worker contract | `skills/poteto-mode/worker.md`                                                                    | Rules every delegate must read first                                |
+| Model config    | `setup-pstack` writes `~/.cursor/rules/pstack-models.mdc`                                         | Per-role model and effort overrides                                 |
+| Automations     | `automations/benny`                                                                               | Slack triage and repro automations (Cursor-specific)                |
 
 ## Behavioral contracts (C-ids are used in the parity matrix)
 
@@ -71,7 +71,7 @@ and log helpers.
 6. Step 4: verify on the same surface. "Inconclusive is not a pass" (C5).
 7. Step 5: failing repro committed before the fix (`tdd`).
 8. Step 6: Opening a PR. The reply pastes failing-then-passing output (C15).
-**Guarantee:** all of it is model compliance. Nothing stops a skipped step.
+   **Guarantee:** all of it is model compliance. Nothing stops a skipped step.
 
 ### T2: `/poteto-mode add CSV export to the report page`
 
@@ -100,6 +100,7 @@ an outcome from instructions into code (C3, C5, C6, C7, C8, C9, C13, C14, C15 fo
 domain). The judgment parts stay instructions (C2, C4, root cause analysis, test design).
 
 Applicability limits, each detailed in the parity matrix:
+
 - Generic engineering playbooks (feature, hillclimb, visual parity, PR babysitting, shipping,
   autopilot, worktree cleanup) do not apply to a Compose testing package. The pstack Pi kit covers
   them already, and both packages can be installed side by side.

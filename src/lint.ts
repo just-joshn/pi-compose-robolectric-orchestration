@@ -89,6 +89,8 @@ function lineOf(source: string, index: number) {
   return line;
 }
 
+const blank = (text: string) => text.replace(/[^\n]/g, " ");
+
 /**
  * Blank out comments and string literals, keeping every newline and offset, so rules only see
  * code. Handles //, nested-free block comments, "...", """...""" and char literals.
@@ -96,7 +98,6 @@ function lineOf(source: string, index: number) {
 export function stripCode(source: string): string {
   let out = "";
   let i = 0;
-  const blank = (text: string) => text.replace(/[^\n]/g, " ");
   while (i < source.length) {
     const rest = source.slice(i);
     const token =
@@ -129,7 +130,12 @@ function expressionEnd(source: string, start: number): number {
     else if (")}]".includes(c)) {
       if (depth === 0) return i;
       depth--;
-    } else if (c === "\n" && depth === 0 && !/^\s*(\.|\?\.|&&|\|\||\+|-|\*|\/|\?:|=)/.test(source.slice(i + 1))) return i;
+    } else if (
+      c === "\n" &&
+      depth === 0 &&
+      !/^\s*(\.|\?\.|&&|\|\||\+|-|\*|\/|\?:|=)/.test(source.slice(i + 1))
+    )
+      return i;
   }
   return source.length;
 }
@@ -161,7 +167,10 @@ function functions(code: string): KotlinFunction[] {
     if (open < 0 || code[start] === "\n") continue;
     const end = code[start] === "{" ? blockEnd(code, start) : expressionEnd(code, start + 1);
     const before = code.slice(0, match.index ?? 0);
-    const annotations = /((?:@[\w.]+(?:\([^)]*\))?\s*)*)(?:(?:public|private|internal|override|suspend|open)\s+)*$/.exec(before)?.[1] ?? "";
+    const annotations =
+      /((?:@[\w.]+(?:\([^)]*\))?\s*)*)(?:(?:public|private|internal|override|suspend|open)\s+)*$/.exec(
+        before,
+      )?.[1] ?? "";
     found.push({
       name: (match[1] ?? "").replaceAll("`", ""),
       line: lineOf(code, match.index ?? 0),
@@ -174,12 +183,13 @@ function functions(code: string): KotlinFunction[] {
 }
 
 /** Find `@Test fun name(...)` functions with their bodies, ignoring comments and strings. */
-export const testFunctions = (source: string) => functions(stripCode(source)).filter((f) => f.isTest);
+export const testFunctions = (source: string) =>
+  functions(stripCode(source)).filter((f) => f.isTest);
 
 /** Helpers in the same file that assert, directly or through another helper. */
 function assertingHelpers(all: readonly KotlinFunction[]): Set<string> {
   const helpers = new Set<string>();
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const f of all) {
       if (f.isTest || helpers.has(f.name)) continue;
@@ -203,7 +213,13 @@ export function lintTestSource(file: string, source: string): LintFinding[] {
     if (rule.when && !rule.when(code)) continue;
     lines.forEach((text, index) => {
       if (rule.pattern.test(text) && !(rule.except?.test(text) ?? false))
-        findings.push({ file, line: index + 1, rule: rule.rule, severity: rule.severity, message: rule.message });
+        findings.push({
+          file,
+          line: index + 1,
+          rule: rule.rule,
+          severity: rule.severity,
+          message: rule.message,
+        });
     });
   }
   const all = functions(code);

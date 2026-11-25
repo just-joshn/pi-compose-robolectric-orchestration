@@ -45,19 +45,30 @@ export function problems(run: Run, deps: { cwd: string; config: Config }): strin
       `The tree changed after the last passing run (#${lastPass.id}); it must be verified again.`,
     );
 
-  const needsControl = workflow.phases.some((p) => p.kind === "mutation" || p.kind === "regression");
+  const needsControl = workflow.phases.some(
+    (p) => p.kind === "mutation" || p.kind === "regression",
+  );
   if (needsControl) {
-    const mutation = [...run.mutations].reverse().find((m) => m.detected && m.restored);
-    const regression = run.runs.findLast((r) => r.purpose === "regression" && r.outcome === "failed");
+    const mutation = run.mutations.findLast((m) => m.detected && m.restored);
+    const regression = run.runs.findLast(
+      (r) => r.purpose === "regression" && r.outcome === "failed",
+    );
     const proven = [mutation?.tree, regression?.tree].filter((t) => t !== undefined);
-    if (proven.length === 0) found.push("No negative control or regression check proved that the tests detect the behavior.");
+    if (proven.length === 0)
+      found.push(
+        "No negative control or regression check proved that the tests detect the behavior.",
+      );
     else if (lastPass && !proven.includes(lastPass.tree))
       found.push("The negative control ran against a different tree than the last passing run.");
   }
 
   if (run.baseline) {
     const exempt = new Set(run.workflow === "refactor" ? run.targets.map((t) => t.file) : []);
-    found.push(...weakenedTests(deps.cwd, run.baseline, run.snapshot, changed, exempt).map((p) => `Weakened tests: ${p}.`));
+    found.push(
+      ...weakenedTests(deps.cwd, run.baseline, run.snapshot, changed, exempt).map(
+        (p) => `Weakened tests: ${p}.`,
+      ),
+    );
   }
 
   if (workflow.preserveTests && lastPass) {
@@ -108,6 +119,10 @@ export function recheck(run: Run, deps: { cwd: string; config: Config }): Run {
   if (found.length === 0) return run;
   const reason = `Files changed after verification. ${found.join(" ")}`;
   const phases = workflows[run.workflow ?? "write-test"].phases;
-  const back = backtrack({ ...run, status: "active", phaseIndex: phases.length }, reason, deps.config);
+  const back = backtrack(
+    { ...run, status: "active", phaseIndex: phases.length },
+    reason,
+    deps.config,
+  );
   return back.status === "active" ? back : finish(run, "incomplete", reason);
 }
