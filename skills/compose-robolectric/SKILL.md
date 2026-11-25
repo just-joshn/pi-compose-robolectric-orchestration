@@ -7,7 +7,7 @@ description: Methodology for Jetpack Compose UI tests that run on the local JVM 
 
 Labels: **[official]** is stated by developer.android.com or robolectric.org. **[judgment]** is an
 engineering default you may override with a stated reason. Sources and versions:
-`references/sources.md`.
+the end of `references/setup.md`.
 
 ## Core rules
 
@@ -35,20 +35,13 @@ engineering default you may override with a stated reason. Sources and versions:
    font scale, locale, dark mode and size. [official: common-patterns]
 9. Behavior tests run well on Robolectric. Pixel-exact rendering, real GPU, hardware sensors,
    system UI and cross-process work need instrumented tests. [official: local-tests/robolectric;
-   details in references/limits.md]
+   details in references/debugging.md]
 10. Prefer one focused test per behavior over one large test that asserts many things.
     [judgment]
 
 ## References (load only the one the current phase needs)
 
-- `references/writing-tests.md`: structure, finders, assertions, and examples
-- `references/synchronization.md`: clocks, coroutines, idling, and v1→v2 hazards
-- `references/semantics.md`: merged and unmerged trees, custom semantics, accessibility
-- `references/setup.md`: Gradle, AGP, Robolectric configuration, SDK selection
-- `references/debugging.md`: reading failures, printToLog, common root causes
-- `references/flakiness.md`: sources of nondeterminism and real fixes
-- `references/anti-patterns.md`: what reviews and audits flag, and why
-- `references/performance.md`: what makes Robolectric tests slow
-- `references/migration.md`: moving androidTest Compose tests to Robolectric
-- `references/limits.md`: when a device test is still required
-- `references/sources.md`: URLs, versions, and fetch date
+- `references/writing-tests.md`: structure, finders, assertions, semantics, and what reviews flag
+- `references/synchronization.md`: clocks, coroutines, v1→v2 hazards, and flaky-test fixes
+- `references/debugging.md`: reading failures, migrating androidTest, and when a device test is required
+- `references/setup.md`: Gradle and Robolectric configuration, test speed, and sources

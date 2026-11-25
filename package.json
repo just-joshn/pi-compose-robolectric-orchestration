@@ -20,9 +20,7 @@
   },
   "files": [
     "src",
-    "!src/**/*.test.ts",
     "skills",
-    "docs",
     "README.md"
   ],
   "type": "module",
@@ -39,8 +37,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test:coverage",
-    "eval": "bun evals/run.ts"
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test:coverage"
   },
   "devDependencies": {
     "@types/node": "22",

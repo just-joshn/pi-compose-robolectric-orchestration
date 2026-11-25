@@ -3,9 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { type Config, defaults } from "../src/config.ts";
 import type { Deps } from "../src/engine.ts";
-import type { Exec } from "../src/runner.ts";
+import type { Exec } from "../src/gradle.ts";
 
 export const TEST_FILE = "app/src/test/java/a/FooTest.kt";
 export const MAIN_FILE = "app/src/main/java/a/Foo.kt";
@@ -94,7 +93,9 @@ export function fakeGradle(
 /** Production code containing "BROKEN" fails the tests; everything else passes. */
 export const behavior = (main: string) => (main.includes("BROKEN") ? "fail" : "pass");
 
-export function deps(root: string, exec: Exec, config: Partial<Config> = {}): Deps {
-  const dir = mkdtempSync(join(tmpdir(), "compose-test-state-"));
-  return { cwd: root, exec, config: { ...defaults, gradle: "gradle", ...config }, dir };
+export function deps(root: string, exec: Exec): Deps {
+  return { cwd: root, exec, dir: mkdtempSync(join(tmpdir(), "compose-test-state-")) };
 }
+
+export const commit = (root: string, message: string) =>
+  git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", message);

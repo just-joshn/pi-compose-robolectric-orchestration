@@ -1,98 +1,131 @@
+import { join } from "node:path";
+
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import {
   addFinding,
   block,
+  type Deps,
   mutate,
   start,
   step,
   type StepResult,
   WorkflowError,
 } from "./engine.ts";
-import { referencePaths } from "./prompts.ts";
-import type { Session } from "./session.ts";
-import { currentPhase, type Run } from "./state.ts";
-import { workflowIds } from "./workflows.ts";
-import { acquireLock, stateDir } from "./workspace.ts";
+import { currentPhase, parseRun, type Run } from "./state.ts";
+import { stateDir } from "./swap.ts";
+import { skillDir, type WorkflowId, workflowIds, workflows } from "./workflows.ts";
 
-const text = (value: string) => [{ type: "text" as const, text: value }];
+export const STATE_ENTRY = "compose-test-state";
 
-function requireRun(session: Session): Run {
-  const run = session.run;
-  if (!run)
-    throw new WorkflowError(
-      "No compose-test request is active. The operator starts one with /compose-test.",
-    );
-  return run;
+/** The run for the current session branch. Every change is persisted as a session entry. */
+export class Session {
+  private current: Run | null = null;
+  private queue: Promise<unknown> = Promise.resolve();
+  private readonly pi: ExtensionAPI;
+
+  constructor(pi: ExtensionAPI) {
+    this.pi = pi;
+  }
+
+  get run(): Run | null {
+    return this.current;
+  }
+
+  set(run: Run): Run {
+    this.current = run;
+    this.pi.appendEntry(STATE_ENTRY, run);
+    return run;
+  }
+
+  /** Rebuild from the latest state on the active branch; abandoned branches are ignored. */
+  restore(ctx: ExtensionContext): void {
+    this.current = null;
+    for (const entry of ctx.sessionManager.getBranch())
+      if (entry.type === "custom" && entry.customType === STATE_ENTRY)
+        this.current = parseRun(entry.data) ?? this.current;
+  }
+
+  /** Serialize Gradle runs and file swaps, even when tool calls run in parallel. */
+  exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(work, work);
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  deps(ctx: ExtensionContext, signal?: AbortSignal): Deps {
+    return {
+      cwd: ctx.cwd,
+      dir: stateDir(ctx.cwd),
+      exec: async (command, args, options) => {
+        const r = await this.pi.exec(command, [...args], {
+          cwd: options.cwd,
+          timeout: options.timeoutMs,
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+        return { code: r.code, stdout: r.stdout, stderr: r.stderr };
+      },
+      ...(signal ? { signal } : {}),
+    };
+  }
 }
 
-function respond(session: Session, result: StepResult) {
-  const run = session.set(result.run);
-  return reply(run, result.message);
-}
-
-function reply(run: Run, message: string) {
-  return {
-    content: text(message),
-    details: { status: run.status, workflow: run.workflow, phase: currentPhase(run)?.id ?? null },
-  };
-}
-
-/**
- * Store a long-running result only if nothing else changed the run meanwhile, for example an
- * operator cancel during a Gradle run. Otherwise the newer state wins and the result is dropped.
- */
-function commit(session: Session, before: Run, result: StepResult) {
-  const now = session.run;
-  if (now && now.revision !== before.revision)
-    return reply(
-      now,
-      `Discarded this result because the run changed while it ran (now ${now.status}).\n${result.message}`,
-    );
-  return respond(session, result);
-}
-
-const target = Type.Object({
-  file: Type.String({ description: "Path relative to the workspace root" }),
-  method: Type.Optional(Type.String({ description: "Single test method to target" })),
+const reply = (run: Run, message: string) => ({
+  content: [{ type: "text" as const, text: message }],
+  details: { status: run.status, workflow: run.workflow, phase: currentPhase(run)?.id ?? null },
 });
 
 export function registerTools(pi: ExtensionAPI, session: Session) {
+  const current = () =>
+    session.run ??
+    (() => {
+      throw new WorkflowError(
+        "No compose-test request is active. The operator starts one with /compose-test.",
+      );
+    })();
+  const respond = (result: StepResult) => reply(session.set(result.run), result.message);
+  /** Long runs keep their result only if nothing (such as a cancel) changed the run meanwhile. */
+  const exclusive = (work: (run: Run) => Promise<StepResult>) =>
+    session.exclusive(async () => {
+      const before = current();
+      const result = await work(before);
+      const now = session.run;
+      if (now && now.revision !== before.revision)
+        return reply(
+          now,
+          `Discarded: the run changed while this ran (now ${now.status}).\n${result.message}`,
+        );
+      return respond(result);
+    });
+
   pi.registerTool({
     name: "compose_test_start",
     label: "Start compose-test workflow",
     description:
-      "Start the compose-test workflow for the active /compose-test request. Targets are local test files under src/test for workflows that run tests, or any files for review, audit and coverage-gaps.",
+      "Start the workflow for the active /compose-test request. Targets are local test files under src/test, or any files for review.",
     parameters: Type.Object({
       workflow: Type.Union(workflowIds.map((id) => Type.Literal(id))),
-      targets: Type.Array(target, { minItems: 1 }),
+      targets: Type.Array(
+        Type.Object({ file: Type.String(), method: Type.Optional(Type.String()) }),
+        { minItems: 1 },
+      ),
       subject: Type.Optional(
         Type.Array(Type.String(), { description: "Production files under test" }),
       ),
-      source: Type.Optional(
-        Type.String({ description: "migrate only: the androidTest file to migrate" }),
-      ),
+      source: Type.Optional(Type.String({ description: "migrate only: the androidTest file" })),
     }),
-    async execute(_id, params, _signal, _update, ctx: ExtensionContext) {
-      const run = requireRun(session);
+    async execute(_id, { workflow: id, targets, subject, source }, _signal, _update, ctx) {
+      const workflow = id as WorkflowId;
       const result = start(
-        run,
-        {
-          workflow: params.workflow,
-          targets: params.targets,
-          ...(params.subject ? { subject: params.subject } : {}),
-          ...(params.source ? { source: params.source } : {}),
-        },
+        current(),
+        { workflow, targets, ...(subject ? { subject } : {}), ...(source ? { source } : {}) },
         ctx.cwd,
-        stateDir(ctx.cwd),
       );
-      acquireLock(stateDir(ctx.cwd), ctx.sessionManager.getSessionId());
-      const refs = referencePaths(params.workflow).join("\n");
-      return respond(session, {
-        ...result,
-        message: `${result.message}\nRelevant references:\n${refs}`,
-      });
+      const refs = workflows[workflow].references
+        .map((f) => join(skillDir, "references", f))
+        .join("\n");
+      return respond({ ...result, message: `${result.message}\nReferences:\n${refs}` });
     },
   });
 
@@ -100,34 +133,26 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
     name: "compose_test_step",
     label: "Complete compose-test phase",
     description:
-      "Complete the current compose-test phase. For explore phases pass a note. For test-running phases the extension runs Gradle and decides the outcome.",
-    parameters: Type.Object({ note: Type.Optional(Type.String()) }),
-    async execute(_id, params, signal, _update, ctx) {
-      return session.exclusive(async () => {
-        const before = requireRun(session);
-        return commit(session, before, await step(before, params.note, session.deps(ctx, signal)));
-      });
-    },
+      "Complete the current phase. For test-running phases the extension runs Gradle and decides the outcome.",
+    parameters: Type.Object({}),
+    execute: (_id, _params, signal, _update, ctx) =>
+      exclusive((run) => step(run, session.deps(ctx, signal))),
   });
 
   pi.registerTool({
     name: "compose_test_mutate",
     label: "Negative control",
     description:
-      "Negative control: temporarily replace `find` (exactly one match) with `replace` in a production file, run the targets, and restore the file. The tests must fail.",
+      "Temporarily replace `find` (exactly one match) with `replace` in a production file, run the targets, restore the file. The tests must fail.",
     parameters: Type.Object({ file: Type.String(), find: Type.String(), replace: Type.String() }),
-    async execute(_id, params, signal, _update, ctx) {
-      return session.exclusive(async () => {
-        const before = requireRun(session);
-        return commit(session, before, await mutate(before, params, session.deps(ctx, signal)));
-      });
-    },
+    execute: (_id, params, signal, _update, ctx) =>
+      exclusive((run) => mutate(run, params, session.deps(ctx, signal))),
   });
 
   pi.registerTool({
     name: "compose_test_finding",
     label: "Record finding",
-    description: "Record one review, audit or coverage-gap finding at a real file and line.",
+    description: "Record one review finding at a real file and line.",
     parameters: Type.Object({
       file: Type.String(),
       line: Type.Integer({ minimum: 1 }),
@@ -135,21 +160,18 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       severity: Type.Union([Type.Literal("error"), Type.Literal("warning")]),
       message: Type.String(),
     }),
-    async execute(_id, params, _signal, _update, ctx) {
-      return session.exclusive(async () =>
-        respond(session, addFinding(requireRun(session), params, ctx.cwd)),
-      );
-    },
+    execute: (_id, params, _signal, _update, ctx) =>
+      exclusive(async (run) => addFinding(run, params, ctx.cwd)),
   });
 
   pi.registerTool({
     name: "compose_test_block",
     label: "Report blocker",
     description:
-      "End the workflow as BLOCKED. Allowed only when the two most recent extension test runs could not execute tests, for example a broken build or offline dependencies.",
+      "End the workflow as BLOCKED. Allowed only when the two most recent extension runs executed no tests (broken build, offline).",
     parameters: Type.Object({ reason: Type.String() }),
-    async execute(_id, params) {
-      return respond(session, block(requireRun(session), params.reason));
+    async execute(_id, { reason }) {
+      return respond(block(current(), reason));
     },
   });
 }

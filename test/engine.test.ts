@@ -1,431 +1,380 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { addFinding, block, mutate, start, step, WorkflowError } from "../src/engine.ts";
+import {
+  addFinding,
+  block,
+  mutate,
+  start,
+  type StartInput,
+  step,
+  WorkflowError,
+} from "../src/engine.ts";
+import type { Exec } from "../src/gradle.ts";
 import { currentPhase, newRun, type Run } from "../src/state.ts";
 import {
   behavior,
+  commit,
   deps,
   fakeGradle,
+  git,
   MAIN_FILE,
   passingTest,
   read,
   TEST_FILE,
+  type Verdict,
   workspace,
   write,
 } from "./helpers.ts";
 
 const BREAK = { file: MAIN_FILE, find: '"Hello"', replace: '"BROKEN"' };
+const twoTests = (second: string) =>
+  passingTest.replace(
+    "  @Test\n  fun showsGreeting",
+    `  @Test\n  fun ${second}() {\n    rule.onNodeWithText("Hi").assertExists()\n  }\n\n  @Test\n  fun showsGreeting`,
+  );
 
-async function writeTestFlow(root: string, d = deps(root, fakeGradle(root, behavior).exec)) {
-  let run: Run = start(
+function begin(
+  root: string,
+  input: Partial<StartInput> = {},
+  decide: (main: string, test: string, call: number) => Verdict = behavior,
+) {
+  const gradle = fakeGradle(root, decide);
+  const d = deps(root, gradle.exec);
+  const run = start(
     newRun("goal", null),
-    { workflow: "write-test", targets: [{ file: TEST_FILE }] },
+    { workflow: "write-test", targets: [{ file: TEST_FILE }], ...input },
     root,
   ).run;
-  run = (await step(run, "Shows the greeting text to the user.", d)).run;
-  return { run, d };
+  return { run, d, gradle };
 }
 
-describe("write-test workflow", () => {
+describe("write-test", () => {
   it("verifies only after a passing run and a detected, restored mutation", async () => {
     const root = workspace({ test: null });
-    const { run: writing, d } = await writeTestFlow(root);
-    expect(currentPhase(writing)?.id).toBe("write");
+    const { run, d } = begin(root);
+    await expect(step(run, d)).rejects.toThrow(/do not exist yet/);
     write(root, TEST_FILE, passingTest);
-    const verified = await step(writing, undefined, d);
+    const verified = await step(run, d);
     expect(verified.message).toContain("run #1 (verify): passed");
-    expect(currentPhase(verified.run)?.kind).toBe("mutation");
     const done = await mutate(verified.run, BREAK, d);
     expect(done.run.status).toBe("verified");
     expect(read(root, MAIN_FILE)).toContain('"Hello"');
-    expect(done.run.mutations[0]).toMatchObject({ detected: true, restored: true });
   });
 
-  it("rejects explore notes that say nothing and edits outside the phase scope", async () => {
+  it("refuses production edits, lint errors and hidden production edits", async () => {
     const root = workspace();
-    const d = deps(root, fakeGradle(root, behavior).exec);
-    const run = start(
-      newRun("goal", null),
-      { workflow: "write-test", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    await expect(step(run, "ok", d)).rejects.toThrow(/at least one sentence/);
+    const { run, d } = begin(root);
     write(root, MAIN_FILE, 'package a\nfun greeting() = "Hi"\n');
-    await expect(step(run, "Shows the greeting text to the user.", d)).rejects.toThrow(
-      /may not change files/,
-    );
-  });
-
-  it("refuses to leave the edit phase with production changes or lint errors", async () => {
-    const root = workspace();
-    const { run, d } = await writeTestFlow(root);
-    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hi"\n');
-    await expect(step(run, undefined, d)).rejects.toThrow(/may not change: app\/src\/main/);
+    await expect(step(run, d)).rejects.toThrow(/may not change: app\/src\/main/);
     write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
     write(root, TEST_FILE, passingTest.replace(".v2.createComposeRule", ".createComposeRule"));
-    await expect(step(run, undefined, d)).rejects.toThrow(/v1-compose-test-api/);
+    await expect(step(run, d)).rejects.toThrow(/v1-compose-test-api/);
+    write(root, TEST_FILE, passingTest);
+    git(root, "update-index", "--assume-unchanged", MAIN_FILE);
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\nfun injected() = 1\n');
+    await expect(step(run, d)).rejects.toThrow(/Foo\.kt/);
+    git(root, "update-index", "--no-assume-unchanged", MAIN_FILE);
+    git(root, "checkout", MAIN_FILE);
+    appendFileSync(join(root, ".git/info/exclude"), "app/src/main/java/a/Injected.kt\n");
+    write(root, "app/src/main/java/a/Injected.kt", "package a\n");
+    await expect(step(run, d)).rejects.toThrow(/Injected\.kt/);
   });
 
-  it("returns to the edit phase when the tests miss the mutation", async () => {
+  it("returns to editing when tests miss the mutation, and keeps the phase when it does not compile", async () => {
     const root = workspace();
-    const gradle = fakeGradle(root, () => "pass");
-    const { run, d } = await writeTestFlow(root, deps(root, gradle.exec));
-    const verified = await step(run, undefined, d);
-    const missed = await mutate(verified.run, BREAK, d);
-    expect(currentPhase(missed.run)?.id).toBe("write");
-    expect(missed.message).toContain("did not detect");
-    expect(read(root, MAIN_FILE)).toContain('"Hello"');
-  });
-
-  it("keeps the phase when a mutation does not compile and validates mutation targets", async () => {
-    const root = workspace();
-    const gradle = fakeGradle(root, (main) => (main.includes("BROKEN") ? "build-error" : "pass"));
-    const { run, d } = await writeTestFlow(root, deps(root, gradle.exec));
-    const verified = (await step(run, undefined, d)).run;
-    const result = await mutate(verified, BREAK, d);
-    expect(currentPhase(result.run)?.kind).toBe("mutation");
-    expect(result.message).toContain("does not compile");
-    await expect(mutate(verified, { ...BREAK, file: TEST_FILE }, d)).rejects.toThrow(
+    const missed = begin(root, {}, () => "pass");
+    const verified = (await step(missed.run, missed.d)).run;
+    const back = await mutate(verified, BREAK, missed.d);
+    expect(currentPhase(back.run)?.id).toBe("write");
+    const broken = begin(root, {}, (main) => (main.includes("BROKEN") ? "build-error" : "pass"));
+    const v2 = (await step(broken.run, broken.d)).run;
+    expect(currentPhase((await mutate(v2, BREAK, broken.d)).run)?.kind).toBe("mutation");
+    await expect(mutate(v2, { ...BREAK, file: TEST_FILE }, broken.d)).rejects.toThrow(
       /not production/,
     );
-    await expect(mutate(verified, { ...BREAK, find: "nope" }, d)).rejects.toThrow(
+    await expect(mutate(v2, { ...BREAK, find: "nope" }, broken.d)).rejects.toThrow(
       /matched 0 times/,
     );
-    await expect(mutate(verified, { ...BREAK, replace: BREAK.find }, d)).rejects.toThrow(
+    await expect(mutate(v2, { ...BREAK, replace: BREAK.find }, broken.d)).rejects.toThrow(
       /must change/,
     );
+    await expect(mutate(missed.run, BREAK, missed.d)).rejects.toThrow(/Not in a negative-control/);
   });
 
-  it("goes back to edit when verification fails and gives up after the retry budget", async () => {
+  it("gives up after three failed verifications", async () => {
     const root = workspace();
-    const gradle = fakeGradle(root, () => "fail");
-    const { run, d } = await writeTestFlow(root, deps(root, gradle.exec, { maxBacktracks: 1 }));
-    const first = await step(run, undefined, d);
-    expect(currentPhase(first.run)?.id).toBe("write");
-    expect(first.message).toContain("Returned to this phase because");
-    const second = await step(first.run, undefined, d);
-    expect(second.run.status).toBe("incomplete");
+    let { run } = begin(root);
+    const { d } = begin(root, {}, () => "fail");
+    for (let i = 0; i < 3; i++) run = (await step(run, d)).run;
+    expect(currentPhase(run)?.id).toBe("write");
+    expect((await step(run, d)).run.status).toBe("incomplete");
   });
 
-  it("refuses verification when the tree changed after the last passing run", async () => {
+  it("re-verifies when the tree changes after the passing run", async () => {
     const root = workspace();
-    const { run, d } = await writeTestFlow(root);
-    const verified = (await step(run, undefined, d)).run;
+    const { run, d } = begin(root);
+    const verified = (await step(run, d)).run;
     write(root, TEST_FILE, passingTest.replace("Hello", "Hello!"));
     const result = await mutate(verified, BREAK, d);
-    expect(result.run.status).toBe("active");
     expect(currentPhase(result.run)?.id).toBe("write");
   });
 
-  it("restores the mutated file when the test run throws", async () => {
+  it("restores the mutated file when Gradle throws, and never clobbers a concurrent write", async () => {
     const root = workspace();
+    const gradle = fakeGradle(root, behavior);
     let calls = 0;
-    const exec = async () => {
-      calls++;
-      if (calls > 1) throw new Error("gradle crashed");
-      return fakeGradle(root, behavior).exec("gradle", [], { cwd: root, timeoutMs: 1 });
+    const throwing: Exec = async (c, a, o) => {
+      if (++calls > 1) throw new Error("gradle crashed");
+      return gradle.exec(c, a, o);
     };
-    const { run, d } = await writeTestFlow(root, deps(root, exec));
-    const verified = (await step(run, undefined, d)).run;
-    await expect(mutate(verified, BREAK, d)).rejects.toThrow("gradle crashed");
+    const first = begin(root);
+    const d1 = { ...first.d, exec: throwing };
+    const verified = (await step(first.run, d1)).run;
+    await expect(mutate(verified, BREAK, d1)).rejects.toThrow("gradle crashed");
     expect(read(root, MAIN_FILE)).toContain('"Hello"');
-    expect(existsSync(join(d.dir, "mutation.json"))).toBe(false);
+    const writing: Exec = async (c, a, o) => {
+      const result = await gradle.exec(c, a, o);
+      write(root, MAIN_FILE, `${read(root, MAIN_FILE)}fun hotfix() = 1\n`);
+      return result;
+    };
+    const done = await mutate(verified, BREAK, { ...first.d, exec: writing });
+    expect(read(root, MAIN_FILE)).toContain("hotfix");
+    expect(done.run.status).toBe("incomplete");
   });
 });
 
-describe("start validation", () => {
+describe("start", () => {
   const root = workspace();
-  const begin = (input: Parameters<typeof start>[1], forced: Parameters<typeof newRun>[1] = null) =>
-    start(newRun("goal", forced), input, root);
-
-  it("rejects targets that Robolectric cannot run", () => {
-    expect(() => begin({ workflow: "write-test", targets: [] })).toThrow(/at least one/);
-    expect(() => begin({ workflow: "write-test", targets: [{ file: MAIN_FILE }] })).toThrow(
-      /src\/test/,
+  const s = (input: Partial<StartInput>, forced: "fix-failing" | null = null) =>
+    start(
+      newRun("goal", forced),
+      { workflow: "write-test", targets: [{ file: TEST_FILE }], ...input } as StartInput,
+      root,
     );
-    expect(() =>
-      begin({ workflow: "write-test", targets: [{ file: "../x/src/test/A.kt" }] }),
-    ).toThrow(/relative/);
-    expect(() =>
-      begin({ workflow: "write-test", targets: [{ file: "app/src/test/a.txt" }] }),
-    ).toThrow(/\.kt or \.java/);
-    expect(() =>
-      begin({ workflow: "fix-failing", targets: [{ file: "app/src/test/java/a/Missing.kt" }] }),
-    ).toThrow(/does not exist/);
-    expect(() =>
-      begin({ workflow: "write-test", targets: [{ file: TEST_FILE }], subject: [TEST_FILE] }),
-    ).toThrow(/not a production/);
-    expect(() =>
-      begin({ workflow: "write-test", targets: [{ file: TEST_FILE }], subject: ["nope.kt"] }),
-    ).toThrow(/does not exist/);
-  });
 
-  it("enforces the operator's workflow choice and the migrate source", () => {
+  it("rejects targets and inputs the workflow cannot use", () => {
+    expect(() => s({ targets: [] })).toThrow(/at least one/);
+    expect(() => s({ targets: [{ file: MAIN_FILE }] })).toThrow(/under src\/test/);
+    expect(() => s({ targets: [{ file: "../x/src/test/A.kt" }] })).toThrow(/relative/);
     expect(() =>
-      begin({ workflow: "audit", targets: [{ file: TEST_FILE }] }, "fix-failing"),
-    ).toThrow(/operator selected/);
-    expect(() => begin({ workflow: "migrate", targets: [{ file: TEST_FILE }] })).toThrow(
-      /needs source/,
-    );
-    expect(() =>
-      begin({ workflow: "migrate", targets: [{ file: TEST_FILE }], source: TEST_FILE }),
-    ).toThrow(/androidTest/);
-    expect(() =>
-      begin({
-        workflow: "migrate",
-        targets: [{ file: TEST_FILE }],
-        source: "app/src/androidTest/X.kt",
-      }),
+      s({ workflow: "fix-failing", targets: [{ file: "app/src/test/java/a/Missing.kt" }] }),
     ).toThrow(/does not exist/);
-  });
-
-  it("refuses a second start while a workflow is running", () => {
-    const run = begin({ workflow: "audit", targets: [{ file: TEST_FILE }] }).run;
-    expect(() => start(run, { workflow: "audit", targets: [{ file: TEST_FILE }] }, root)).toThrow(
+    expect(() => s({ subject: [TEST_FILE] })).toThrow(/production/);
+    expect(() => s({ workflow: "review" }, "fix-failing")).toThrow(/operator selected/);
+    expect(() => s({ workflow: "migrate" })).toThrow(/androidTest/);
+    const run = s({ workflow: "review" }).run;
+    expect(() => start(run, { workflow: "review", targets: [{ file: TEST_FILE }] }, root)).toThrow(
       WorkflowError,
     );
   });
 });
 
-describe("fix-failing workflow", () => {
-  it("requires the failure to reproduce, then the original tests to pass unweakened", async () => {
-    const twoTests = passingTest.replace(
-      "  @Test\n  fun showsGreeting",
-      '  @Test\n  fun other() {\n    rule.onNodeWithText("Hi").assertExists()\n  }\n\n  @Test\n  fun showsGreeting',
-    );
-    const root = workspace({ test: twoTests });
-    write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
-    const d = deps(root, fakeGradle(root, behavior).exec);
-    let run = start(
-      newRun("goal", null),
-      { workflow: "fix-failing", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    run = (await step(run, undefined, d)).run;
-    expect(currentPhase(run)?.id).toBe("explore");
-    run = (await step(run, "greeting() returns the wrong text.", d)).run;
-    write(
-      root,
-      TEST_FILE,
-      twoTests.replace("  @Test\n  fun other", "  @org.junit.Ignore\n  @Test\n  fun other"),
-    );
-    await expect(step(run, undefined, d)).rejects.toThrow(/@Ignore/);
-    write(root, TEST_FILE, passingTest);
-    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
-    await expect(step(run, undefined, d)).rejects.toThrow(/lost tests: other/);
-  });
+async function atFix(
+  root: string,
+  decide: (main: string, test: string, call: number) => Verdict = behavior,
+  method?: string,
+) {
+  write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
+  commit(root, "bug");
+  const target = method ? { file: TEST_FILE, method } : { file: TEST_FILE };
+  const { run, d, gradle } = begin(root, { workflow: "fix-failing", targets: [target] }, decide);
+  return { run: (await step(run, d)).run, d, gradle };
+}
 
-  it("reproduces one method but verifies the whole class, so sibling tests count", async () => {
-    const root = workspace({
-      test: passingTest.replace(
-        "  @Test\n  fun showsGreeting",
-        '  @Test\n  fun sibling() {\n    rule.onNodeWithText("Hi").assertExists()\n  }\n\n  @Test\n  fun showsGreeting',
-      ),
-    });
-    write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
-    const gradle = fakeGradle(root, behavior);
-    const d = deps(root, gradle.exec);
-    const target = { file: TEST_FILE, method: "showsGreeting" };
-    let run = start(newRun("goal", null), { workflow: "fix-failing", targets: [target] }, root).run;
-    run = (await step(run, undefined, d)).run;
-    run = (await step(run, "greeting() returns the wrong text.", d)).run;
+describe("fix-failing", () => {
+  it("reproduces one method, verifies the whole class, and proves the fix on the original code", async () => {
+    const root = workspace({ test: twoTests("sibling") });
+    const { run, d, gradle } = await atFix(root, behavior, "showsGreeting");
+    expect(currentPhase(run)?.id).toBe("fix");
     write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
-    const done = await step(run, undefined, d);
+    const done = await step(run, d);
     expect(gradle.calls[0]).toContain("a.FooTest.showsGreeting");
     expect(gradle.calls[1]).toContain("a.FooTest");
     expect(done.run.status).toBe("verified");
+    expect(read(root, MAIN_FILE)).toContain('"Hello"');
   });
 
-  it("blocks after two passing reproduction attempts", async () => {
-    const root = workspace();
-    const d = deps(root, fakeGradle(root, () => "pass").exec);
-    let run = start(
-      newRun("goal", null),
-      { workflow: "fix-failing", targets: [{ file: TEST_FILE }] },
+  it("rejects deleted, lost or ignored tests", async () => {
+    const root = workspace({ test: twoTests("other") });
+    write(
       root,
-    ).run;
-    run = (await step(run, undefined, d)).run;
-    expect(run.status).toBe("active");
-    run = (await step(run, undefined, d)).run;
-    expect(run.status).toBe("blocked");
+      "app/src/test/java/a/OtherTest.kt",
+      passingTest.replace("class FooTest", "class OtherTest"),
+    );
+    git(root, "add", "-A");
+    const { run, d } = await atFix(root);
+    write(
+      root,
+      TEST_FILE,
+      twoTests("other").replace("  @Test\n  fun other", "  @Ignore\n  @Test\n  fun other"),
+    );
+    await expect(step(run, d)).rejects.toThrow(/gained @Ignore/);
+    write(root, TEST_FILE, passingTest);
+    await expect(step(run, d)).rejects.toThrow(/lost tests: other/);
+    write(root, TEST_FILE, twoTests("other"));
+    rmSync(join(root, "app/src/test/java/a/OtherTest.kt"));
+    await expect(step(run, d)).rejects.toThrow(/OtherTest.kt was deleted/);
+  });
+
+  it("never verifies a weakened assertion while the bug remains", async () => {
+    const root = workspace();
+    const strict = (main: string, test: string) =>
+      test.includes('"Hello").assertIsDisplayed') && main.includes("BROKEN") ? "fail" : "pass";
+    const { run, d } = await atFix(root, strict);
+    write(
+      root,
+      TEST_FILE,
+      passingTest.replace('"Hello").assertIsDisplayed()', '"Hello").assertExists()'),
+    );
+    const result = await step(run, d);
+    expect(result.message).toContain("No production code changed");
+    const back = await mutate(result.run, { file: MAIN_FILE, find: '"BROKEN"', replace: '"X"' }, d);
+    expect(back.run.status).not.toBe("verified");
+  });
+
+  it("sends a fix back when the tests also pass on the original code, and accepts a mutation when they do not compile there", async () => {
+    const root = workspace();
+    const { run, d } = await atFix(root, (main, _t, call) =>
+      call === 1 && main.includes("BROKEN") ? "fail" : "pass",
+    );
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
+    expect((await step(run, d)).message).toContain("also pass on the original");
+    const other = workspace();
+    const c = await atFix(other, (main, _t, call) =>
+      call === 1
+        ? "fail"
+        : main.includes("Nope")
+          ? "fail"
+          : main.includes("BROKEN")
+            ? "build-error"
+            : "pass",
+    );
+    write(other, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
+    const r = await step(c.run, c.d);
+    expect(r.message).toContain("do not compile against the original");
+    expect(
+      (await mutate(r.run, { file: MAIN_FILE, find: '"Hello"', replace: '"Nope"' }, c.d)).run
+        .status,
+    ).toBe("verified");
+  });
+
+  it("uses the uncommitted start content of a file for the regression check", async () => {
+    const root = workspace();
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
+    const { run, d } = begin(root, { workflow: "fix-failing" });
+    const fixing = (await step(run, d)).run;
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
+    expect((await step(fixing, d)).run.status).toBe("verified");
+  });
+
+  it("blocks when the failure does not reproduce twice", async () => {
+    const root = workspace();
+    const { run, d } = begin(root, { workflow: "fix-failing" }, () => "pass");
+    const once = (await step(run, d)).run;
+    expect(once.status).toBe("active");
+    expect((await step(once, d)).run.status).toBe("blocked");
   });
 });
 
-describe("fix-flaky workflow", () => {
-  it("records the probe and verifies only when every stress run passes", async () => {
+describe("other workflows", () => {
+  it("fix-flaky requires five passing stress runs and a negative control", async () => {
     const root = workspace();
     let flaky = true;
-    const d = deps(root, fakeGradle(root, (main) => (flaky ? "flaky" : behavior(main))).exec, {
-      stressRuns: 3,
-    });
-    let run = start(
-      newRun("goal", null),
-      { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    const probe = await step(run, undefined, d);
-    expect(probe.message).toMatch(/Flake probe: \d\/3 runs failed/);
-    run = (await step(probe.run, "Real time sleep races the loader.", d)).run;
-    const stillFlaky = await step(run, undefined, d);
-    expect(currentPhase(stillFlaky.run)?.id).toBe("fix");
+    const { run, d } = begin(root, { workflow: "fix-flaky" }, (main) =>
+      flaky ? "flaky" : behavior(main),
+    );
+    const still = await step(run, d);
+    expect(currentPhase(still.run)?.id).toBe("fix");
     flaky = false;
-    const stable = await step(stillFlaky.run, undefined, d);
+    const stable = await step(still.run, d);
     expect(currentPhase(stable.run)?.kind).toBe("mutation");
-    const done = await mutate(stable.run, BREAK, d);
-    expect(done.run.status).toBe("verified");
+    expect((await mutate(stable.run, BREAK, d)).run.status).toBe("verified");
   });
-});
 
-describe("performance workflow", () => {
-  it("requires the minimum speedup measured by the extension", async () => {
+  it("refactor needs a passing baseline and may merge its own tests", async () => {
+    const root = workspace({ test: twoTests("duplicate") });
+    const { run, d } = begin(root, { workflow: "refactor" });
+    const editing = (await step(run, d)).run;
+    write(root, TEST_FILE, passingTest);
+    const verified = (await step(editing, d)).run;
+    expect((await mutate(verified, BREAK, d)).run.status).toBe("verified");
+    const failing = begin(workspace(), { workflow: "refactor" }, () => "fail");
+    const result = await step(failing.run, failing.d);
+    expect(result.run.statusReason).toContain("passing baseline");
+  });
+
+  it("performance needs a measured speedup and a passing baseline", async () => {
     const root = workspace();
-    const d = deps(root, fakeGradle(root, () => "pass").exec, { measureRuns: 1, maxBacktracks: 1 });
-    let run = start(
-      newRun("goal", null),
-      { workflow: "performance", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    run = (await step(run, undefined, d)).run;
-    expect(currentPhase(run)?.id).toBe("optimize");
-    const slow = await step(run, undefined, d);
-    expect(slow.message).toContain("Below the required");
-    expect(currentPhase(slow.run)?.id).toBe("optimize");
+    const { run, d } = begin(root, { workflow: "performance" }, () => "pass");
+    const optimizing = (await step(run, d)).run;
+    expect(currentPhase(optimizing)?.id).toBe("optimize");
+    expect((await step(optimizing, d)).message).toContain("Needs at least 5%");
+    const failing = begin(workspace(), { workflow: "performance" }, () => "fail");
+    expect((await step(failing.run, failing.d)).run.status).toBe("blocked");
   });
 
-  it("blocks when the baseline does not pass", async () => {
-    const root = workspace();
-    const d = deps(root, fakeGradle(root, () => "fail").exec, { measureRuns: 1 });
-    const run = start(
-      newRun("goal", null),
-      { workflow: "performance", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    expect((await step(run, undefined, d)).run.status).toBe("blocked");
-  });
-});
-
-describe("findings workflows", () => {
-  it("requires every target to be read, keeps the tree unchanged and adds lint findings", async () => {
+  it("review requires reading every target, stays read-only, and adds lint findings", async () => {
     const root = workspace({
       test: passingTest.replace("assertIsDisplayed()", "toString()\n    Thread.sleep(10)"),
     });
-    const d = deps(root, fakeGradle(root, behavior).exec);
-    let run = start(
-      newRun("goal", null),
-      { workflow: "audit", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    await expect(step(run, undefined, d)).rejects.toThrow(/Not read yet/);
-    run = addFinding(
+    const { run, d } = begin(root, { workflow: "review" });
+    await expect(step(run, d)).rejects.toThrow(/Not read yet/);
+    let read1: Run = addFinding(
       run,
       { file: TEST_FILE, line: 3, rule: "custom", severity: "warning", message: "m" },
       root,
     ).run;
+    expect(
+      addFinding(
+        read1,
+        { file: TEST_FILE, line: 3, rule: "custom", severity: "warning", message: "m" },
+        root,
+      ).message,
+    ).toBe("Already recorded.");
     expect(() =>
       addFinding(
-        run,
+        read1,
         { file: TEST_FILE, line: 999, rule: "r", severity: "error", message: "m" },
         root,
       ),
     ).toThrow(/out of range/);
-    expect(() =>
-      addFinding(
-        run,
-        { file: "nope.kt", line: 1, rule: "r", severity: "error", message: "m" },
-        root,
-      ),
-    ).toThrow(/does not exist/);
-    run = { ...run, reads: [TEST_FILE] };
-    writeFileSync(join(root, "stray.txt"), "x");
-    await expect(step(run, undefined, d)).rejects.toThrow(/read-only/);
-    writeFileSync(join(root, "stray.txt"), "");
-    const { rmSync } = await import("node:fs");
+    read1 = { ...read1, reads: [TEST_FILE] };
+    write(root, "stray.txt", "x");
+    await expect(step(read1, d)).rejects.toThrow(/read-only/);
     rmSync(join(root, "stray.txt"));
-    const done = await step(run, undefined, d);
+    const done = await step(read1, d);
     expect(done.run.status).toBe("verified");
     expect(done.run.findings.map((f) => f.rule)).toEqual(
       expect.arrayContaining(["custom", "thread-sleep", "no-assertion"]),
     );
   });
-});
 
-describe("block", () => {
-  it("is refused without evidence and accepted after two runs that executed nothing", async () => {
+  it("migrate needs every source case and may delete the source", async () => {
+    const root = workspace({ test: null });
+    const source = "app/src/androidTest/java/a/FooDeviceTest.kt";
+    write(root, source, twoTests("second"));
+    git(root, "add", "-A");
+    commit(root, "source");
+    const { run, d } = begin(root, { workflow: "migrate", source });
+    write(root, TEST_FILE, passingTest);
+    await expect(step(run, d)).rejects.toThrow(/source has 2 @Test cases but the targets have 1/);
+    write(root, TEST_FILE, twoTests("second"));
+    rmSync(join(root, source));
+    const verified = (await step(run, d)).run;
+    expect((await mutate(verified, BREAK, d)).run.status).toBe("verified");
+    expect(existsSync(join(root, source))).toBe(false);
+  });
+
+  it("block needs two runs that executed nothing", async () => {
     const root = workspace();
-    const { run, d } = await writeTestFlow(
-      root,
-      deps(root, fakeGradle(root, () => "build-error").exec),
-    );
+    const { run, d } = begin(root, {}, () => "build-error");
     expect(() => block(run, "offline")).toThrow(/needs evidence/);
-    const first = await step(run, undefined, d);
-    const second = await step(first.run, undefined, d);
-    const blocked = block(second.run, "offline");
-    expect(blocked.run.status).toBe("blocked");
+    const twice = (await step((await step(run, d)).run, d)).run;
+    const blocked = block(twice, "offline");
     expect(blocked.run.statusReason).toMatch(/runs #1, #2/);
     expect(() => block(blocked.run, "again")).toThrow(/No active workflow/);
-  });
-});
-
-describe("migrate workflow", () => {
-  it("requires at least as many test cases as the instrumented source", async () => {
-    const root = workspace();
-    write(
-      root,
-      "app/src/androidTest/java/a/FooDeviceTest.kt",
-      `${passingTest}\n@Test fun a() { assert(true) }\n@Test fun b() { assert(true) }\n`,
-    );
-    const d = deps(root, fakeGradle(root, behavior).exec);
-    let run = start(
-      newRun("goal", null),
-      {
-        workflow: "migrate",
-        targets: [{ file: TEST_FILE }],
-        source: "app/src/androidTest/java/a/FooDeviceTest.kt",
-      },
-      root,
-    ).run;
-    run = (await step(run, "Every case is pure Compose and runs on Robolectric.", d)).run;
-    await expect(step(run, undefined, d)).rejects.toThrow(
-      /source has 3 @Test cases but the targets have 1/,
-    );
-    expect(readFileSync(join(root, TEST_FILE), "utf8")).toContain("showsGreeting");
-  });
-});
-
-describe("refactor workflow", () => {
-  it("requires a passing baseline, lets targets merge tests, and keeps the negative control", async () => {
-    const twoTests = passingTest.replace(
-      "  @Test\n  fun showsGreeting",
-      '  @Test\n  fun duplicate() {\n    rule.onNodeWithText("Hello").assertExists()\n  }\n\n  @Test\n  fun showsGreeting',
-    );
-    const root = workspace({ test: twoTests });
-    const d = deps(root, fakeGradle(root, behavior).exec);
-    let run = start(
-      newRun("g", null),
-      { workflow: "refactor", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    run = (await step(run, undefined, d)).run;
-    expect(currentPhase(run)?.id).toBe("refactor");
-    write(root, TEST_FILE, passingTest);
-    run = (await step(run, undefined, d)).run;
-    expect(currentPhase(run)?.kind).toBe("mutation");
-    const done = await mutate(run, BREAK, d);
-    expect(done.run.status).toBe("verified");
-  });
-
-  it("ends as incomplete when the baseline already fails", async () => {
-    const root = workspace();
-    const d = deps(root, fakeGradle(root, () => "fail").exec);
-    const run = start(
-      newRun("g", null),
-      { workflow: "refactor", targets: [{ file: TEST_FILE }] },
-      root,
-    ).run;
-    const result = await step(run, undefined, d);
-    expect(result.run.status).toBe("incomplete");
   });
 });

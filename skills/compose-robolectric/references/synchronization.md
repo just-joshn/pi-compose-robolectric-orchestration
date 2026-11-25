@@ -1,4 +1,6 @@
-# Synchronization, clocks, and coroutines
+# Synchronization and flakiness
+
+## Synchronization, clocks, and coroutines
 
 Source: developer.android.com/develop/ui/compose/testing/synchronization and /migrate-v2.
 
@@ -28,3 +30,19 @@ Measured by this package's prototype on Compose ui-test 1.13.0 and Robolectric 4
 
 `runTest` together with `createComposeRule` creates two clocks. Advancing one does not advance the
 other. Use `v2.runComposeUiTest`, or pass `mainClock.scheduler` to `runTest`.
+
+## Flaky Compose tests
+
+Common sources:
+
+| Source                                              | Real fix                                                           | Citation                             |
+| --------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------ |
+| `Thread.sleep` or real-time waits                   | `waitUntil`, `waitForIdle`, `mainClock`                            | official: synchronization            |
+| Work Compose cannot see (custom executors, real IO) | Inject a test dispatcher or fake; `registerIdlingResource`         | official: synchronization            |
+| Threads that outlive the test                       | Stop executors; use a direct executor or fakes                     | official: robolectric best-practices |
+| Shared mutable singletons between tests             | Construct state per test                                           | judgment                             |
+| Animations sampled at arbitrary times               | `autoAdvance = false` with explicit frames                         | official: synchronization            |
+| Input mode leaking between tests                    | v2 enforces `InputMode.Touch`; configure via `ComposeUiTestConfig` | official: migrate-v2                 |
+
+Retries, `@Ignore`, longer timeouts and sleeps hide flakiness; they do not remove it. The
+fix-flaky workflow reruns the tests several times and requires every run to pass.

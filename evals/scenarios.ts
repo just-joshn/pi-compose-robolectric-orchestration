@@ -130,7 +130,7 @@ export const scenarios: readonly Scenario[] = [
     category: "positive",
     prompt: "/compose-test Audit LegacyCounterTest against current Compose testing best practices.",
     verify: (o) => [
-      ...statusIs(o, "verified", "audit"),
+      ...statusIs(o, "verified", "review"),
       check("findings include the v1 API", findingRules(o).includes("v1-compose-test-api")),
       check("findings include the sleep", findingRules(o).includes("thread-sleep")),
       check("findings include the missing assertion", findingRules(o).includes("no-assertion")),
@@ -229,12 +229,12 @@ export const scenarios: readonly Scenario[] = [
     id: "coverage-gaps",
     category: "positive",
     prompt:
-      "/compose-test coverage-gaps Which user-visible behavior of SaveScreen and Loader has no test?",
+      "/compose-test review Which user-visible behavior of SaveScreen and Loader has no test?",
     verify: (o) => {
       const findings =
         (o.state?.["findings"] as { file: string; rule: string }[] | undefined) ?? [];
       return [
-        ...statusIs(o, "verified", "coverage-gaps"),
+        ...statusIs(o, "verified", "review"),
         check(
           "a gap is reported for SaveScreen",
           findings.some((f) => f.file.endsWith("SaveScreen.kt")),
@@ -341,9 +341,9 @@ export const scenarios: readonly Scenario[] = [
     id: "installed",
     category: "positive",
     mode: "installed",
-    prompt: "/compose-test audit Audit LegacyCounterTest.",
+    prompt: "/compose-test review Audit LegacyCounterTest.",
     verify: (o) => [
-      ...statusIs(o, "verified", "audit"),
+      ...statusIs(o, "verified", "review"),
       check("findings include the v1 API", findingRules(o).includes("v1-compose-test-api")),
     ],
   },

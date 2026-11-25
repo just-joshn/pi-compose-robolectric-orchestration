@@ -1,8 +1,20 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { atomicWrite } from "./workspace.ts";
+/** Per-workspace directory outside the repository, so it never shows up in the fingerprint. */
+export function stateDir(cwd: string, env = process.env): string {
+  const root = env["PI_COMPOSE_TEST_HOME"] ?? join(homedir(), ".pi", "agent", "compose-test");
+  const dir = join(root, createHash("sha256").update(cwd).digest("hex").slice(0, 16));
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function atomicWrite(path: string, content: string) {
+  writeFileSync(`${path}.tmp`, content);
+  renameSync(`${path}.tmp`, path);
+}
 
 /** Replace a file's content for the duration of a run; null deletes it. */
 export interface FileSwap {
