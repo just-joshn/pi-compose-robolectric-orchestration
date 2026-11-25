@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { weakenedTests } from "./baseline.ts";
+import { reshapeable, weakenedTests } from "./baseline.ts";
 import type { Config } from "./config.ts";
 import { countIgnores, lintTestSource } from "./lint.ts";
 import { categorize, isKotlinOrJava } from "./paths.ts";
@@ -63,7 +63,7 @@ export function problems(run: Run, deps: { cwd: string; config: Config }): strin
   }
 
   if (run.baseline) {
-    const exempt = new Set(run.workflow === "refactor" ? run.targets.map((t) => t.file) : []);
+    const exempt = reshapeable(run.workflow, run.targets, run.source);
     found.push(
       ...weakenedTests(deps.cwd, run.baseline, run.snapshot, changed, exempt).map(
         (p) => `Weakened tests: ${p}.`,

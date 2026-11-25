@@ -394,3 +394,38 @@ describe("migrate workflow", () => {
     expect(readFileSync(join(root, TEST_FILE), "utf8")).toContain("showsGreeting");
   });
 });
+
+describe("refactor workflow", () => {
+  it("requires a passing baseline, lets targets merge tests, and keeps the negative control", async () => {
+    const twoTests = passingTest.replace(
+      "  @Test\n  fun showsGreeting",
+      '  @Test\n  fun duplicate() {\n    rule.onNodeWithText("Hello").assertExists()\n  }\n\n  @Test\n  fun showsGreeting',
+    );
+    const root = workspace({ test: twoTests });
+    const d = deps(root, fakeGradle(root, behavior).exec);
+    let run = start(
+      newRun("g", null),
+      { workflow: "refactor", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
+    run = (await step(run, undefined, d)).run;
+    expect(currentPhase(run)?.id).toBe("refactor");
+    write(root, TEST_FILE, passingTest);
+    run = (await step(run, undefined, d)).run;
+    expect(currentPhase(run)?.kind).toBe("mutation");
+    const done = await mutate(run, BREAK, d);
+    expect(done.run.status).toBe("verified");
+  });
+
+  it("ends as incomplete when the baseline already fails", async () => {
+    const root = workspace();
+    const d = deps(root, fakeGradle(root, () => "fail").exec);
+    const run = start(
+      newRun("g", null),
+      { workflow: "refactor", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
+    const result = await step(run, undefined, d);
+    expect(result.run.status).toBe("incomplete");
+  });
+});

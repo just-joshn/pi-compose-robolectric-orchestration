@@ -31,6 +31,7 @@ const GREETING = "app/src/main/java/dev/fixture/Greeting.kt";
 const LOADER_TEST = "app/src/test/java/dev/fixture/LoaderTest.kt";
 const GREETING_TEST = "app/src/test/java/dev/fixture/GreetingTest.kt";
 const COUNTER_TEST = "app/src/test/java/dev/fixture/CounterTest.kt";
+const LEGACY_TEST = "app/src/test/java/dev/fixture/LegacyCounterTest.kt";
 const PAYMENTS = "app/src/main/java/dev/fixture/PaymentsLegacy.kt";
 
 const status = (o: Outcome) => text(o.state?.["status"]);
@@ -163,6 +164,11 @@ export const scenarios: readonly Scenario[] = [
       const count = tests.reduce((n, f) => n + (read(o.dir, f).match(/@Test/g)?.length ?? 0), 0);
       return [
         ...statusIs(o, "verified", "migrate"),
+        check(
+          "verified on the first pass (no reopen)",
+          o.metrics.gateNudges === 0,
+          String(o.metrics.gateNudges),
+        ),
         check("migrated file has both cases", count >= 2, String(count)),
         ...testsAreValid(o, "app/src/main/java/dev/fixture/Counter.kt", "count += 1", "count += 0"),
       ];
@@ -193,6 +199,76 @@ export const scenarios: readonly Scenario[] = [
         "count += 1",
         "count += 0",
       ).filter((c) => !c.name.startsWith("production")),
+    ],
+  },
+  {
+    id: "refactor",
+    category: "positive",
+    prompt:
+      "/compose-test refactor Simplify LegacyCounterTest and CounterTest; keep what they are meant to verify.",
+    verify: (o) => [
+      ...statusIs(o, "verified", "refactor"),
+      check("production code unchanged", changed(o.dir, "app/src/main") === ""),
+      check(
+        "CounterTest passes independently",
+        gradle(o.dir, "dev.fixture.CounterTest").code === 0,
+      ),
+      check("LegacyCounterTest no longer sleeps", !/Thread\.sleep/.test(read(o.dir, LEGACY_TEST))),
+    ],
+  },
+  {
+    id: "refactor-failing-baseline",
+    category: "failure",
+    prompt: "/compose-test refactor Simplify GreetingTest.",
+    verify: (o) => [
+      check("not verified", status(o) !== "verified", status(o)),
+      check(
+        "reason names the failing baseline",
+        /passing baseline/.test(text(o.state?.["statusReason"])),
+        text(o.state?.["statusReason"]),
+      ),
+      check("nothing changed", git(o.dir, "status", "--porcelain") === ""),
+    ],
+  },
+  {
+    id: "coverage-gaps",
+    category: "positive",
+    prompt:
+      "/compose-test coverage-gaps Which user-visible behavior of SaveScreen and Loader has no test?",
+    verify: (o) => {
+      const findings =
+        (o.state?.["findings"] as { file: string; rule: string }[] | undefined) ?? [];
+      return [
+        ...statusIs(o, "verified", "coverage-gaps"),
+        check(
+          "a gap is reported for SaveScreen",
+          findings.some((f) => f.file.endsWith("SaveScreen.kt")),
+        ),
+        check("nothing changed", git(o.dir, "status", "--porcelain") === ""),
+      ];
+    },
+  },
+  {
+    id: "performance",
+    category: "positive",
+    prompt:
+      "/compose-test performance SlowCounterTest takes too long. Make it faster without losing coverage.",
+    setup: (dir) =>
+      writeFileSync(
+        join(dir, "app/src/test/java/dev/fixture/SlowCounterTest.kt"),
+        read(dir, COUNTER_TEST)
+          .replace("class CounterTest", "class SlowCounterTest")
+          .replace(
+            'rule.onNodeWithText("Count: 1").assertIsDisplayed()',
+            'Thread.sleep(2_000)\n    rule.onNodeWithText("Count: 1").assertIsDisplayed()',
+          ),
+      ),
+    verify: (o) => [
+      ...statusIs(o, "verified", "performance"),
+      check(
+        "SlowCounterTest passes independently",
+        gradle(o.dir, "dev.fixture.SlowCounterTest").code === 0,
+      ),
     ],
   },
   {

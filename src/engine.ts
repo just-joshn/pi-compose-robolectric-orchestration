@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { saveSnapshot, weakenedTests } from "./baseline.ts";
+import { reshapeable, saveSnapshot, weakenedTests } from "./baseline.ts";
 import { regressionCheck } from "./controls.ts";
 import {
   type Deps,
@@ -131,7 +131,7 @@ function completeEdit(run: Run, note: string | undefined, deps: Deps): StepResul
       `Fix these before continuing:\n${lintErrors.map((f) => `${f.file}:${f.line} ${f.rule}: ${f.message}`).join("\n")}`,
     );
   if (run.baseline) {
-    const exempt = new Set(run.workflow === "refactor" ? run.targets.map((t) => t.file) : []);
+    const exempt = reshapeable(run.workflow, run.targets, run.source);
     const weakened = weakenedTests(
       deps.cwd,
       run.baseline,
@@ -211,7 +211,10 @@ async function runPhase(run: Run, deps: Deps): Promise<StepResult> {
     case "verify-pass": {
       const [next, r] = await execute(run, "verify", deps);
       if (r.outcome === "passed") return { run: advance(next), message: describeRun(r) };
-      const reason = `Verification ${r.outcome}.`;
+      const reason =
+        run.phaseIndex === 0
+          ? `The tests ${r.outcome === "failed" ? "fail" : "do not run"} before any change. This workflow needs a passing baseline; fix the failures first (fix-failing).`
+          : `Verification ${r.outcome}.`;
       return { run: backtrack(next, reason, deps.config), message: `${describeRun(r)}\n${reason}` };
     }
     case "reproduce-fail": {

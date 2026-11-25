@@ -71,3 +71,17 @@ export function weakenedTests(
   }
   return problems;
 }
+
+/**
+ * Test files a workflow may reshape: a refactor's targets may merge or drop tests, and a
+ * migration may delete the instrumented source it moved.
+ */
+export function reshapeable(
+  workflow: string | null,
+  targets: readonly { file: string }[],
+  source: string | null,
+) {
+  if (workflow === "refactor") return new Set(targets.map((t) => t.file));
+  if (workflow === "migrate" && source) return new Set([source]);
+  return new Set<string>();
+}
