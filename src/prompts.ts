@@ -29,9 +29,10 @@ export function kickoff(goal: string, forced: WorkflowId | null): string {
     "Find the target files (read and grep), then call compose_test_start. Until then, files cannot be edited.",
     "The extension owns the workflow. It decides each phase, runs Gradle tests itself, applies and reverts negative-control mutations, and writes the final status. Your prose cannot change that status, so report only what the tools returned.",
     "",
+    "Core rules (the compose-robolectric skill's SKILL.md body, already loaded here, so do not read SKILL.md again):",
     methodology(),
     "",
-    `Reference files live in ${join(skillDir, "references")}. compose_test_start tells you which ones apply.`,
+    `Reference files live in ${join(skillDir, "references")}. compose_test_start names the ones that apply; read one only when you need its detail.`,
   ].join("\n");
 }
 
