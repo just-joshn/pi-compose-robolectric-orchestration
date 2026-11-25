@@ -11,6 +11,7 @@ export type PhaseKind =
   | "verify-pass"
   | "reproduce-fail"
   | "mutation"
+  | "regression"
   | "probe"
   | "stress"
   | "measure";
@@ -139,6 +140,11 @@ export const workflows: Readonly<Record<WorkflowId, Workflow>> = {
         ANY,
       ),
       verify,
+      phase(
+        "regression-check",
+        "regression",
+        "Call compose_test_step. If production code changed, the extension runs the tests against the original production code and requires them to fail there. If only tests changed, call compose_test_mutate instead to prove the tests still detect the behavior.",
+      ),
     ],
     allowedChanges: ANY,
     preserveTests: true,
@@ -169,6 +175,7 @@ export const workflows: Readonly<Record<WorkflowId, Workflow>> = {
         "stress",
         "Call compose_test_step. The extension reruns the targets and requires every run to pass.",
       ),
+      mutation,
     ],
     allowedChanges: ANY,
     preserveTests: true,

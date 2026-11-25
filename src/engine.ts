@@ -1,13 +1,14 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Config } from "./config.ts";
+import { saveSnapshot, weakenedTests } from "./baseline.ts";
+import { regressionCheck } from "./controls.ts";
+import { type Deps, describeRun, execute, nextStep, readText, reject, type StepResult } from "./core.ts";
 import { finalize } from "./finalize.ts";
 import { countIgnores, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isKotlinOrJava, isLocalTestPath } from "./paths.ts";
 import { backtrack, changes, scopeViolations } from "./progress.ts";
-import { type ResolvedTarget, resolveTarget, type Target } from "./project.ts";
-import { type Exec, runTargets } from "./runner.ts";
+import type { Target } from "./project.ts";
 import {
   addRun,
   advance,
@@ -20,29 +21,14 @@ import {
   type RunPurpose,
   type TestRun,
 } from "./state.ts";
-import { digest, fingerprint } from "./tree.ts";
+import { fingerprint } from "./tree.ts";
 import { type WorkflowId, workflows } from "./workflows.ts";
-import { clearPendingMutation, recordPendingMutation } from "./workspace.ts";
+import { stateDir } from "./workspace.ts";
 
-export interface Deps {
-  readonly cwd: string;
-  readonly exec: Exec;
-  readonly config: Config;
-  readonly dir: string;
-  readonly signal?: AbortSignal;
-}
+export { mutate } from "./controls.ts";
+export { type Deps, nextStep, type StepResult, WorkflowError } from "./core.ts";
 
-export interface StepResult {
-  readonly run: Run;
-  readonly message: string;
-}
-
-export class WorkflowError extends Error {}
-const reject = (message: string): never => {
-  throw new WorkflowError(message);
-};
-
-const RUN_KINDS = new Set(["verify-pass", "reproduce-fail", "probe", "stress", "measure"]);
+const RUN_KINDS = new Set(["verify-pass", "reproduce-fail", "regression", "probe", "stress", "measure"]);
 
 export interface StartInput {
   readonly workflow: WorkflowId;
@@ -50,9 +36,6 @@ export interface StartInput {
   readonly subject?: readonly string[];
   readonly source?: string;
 }
-
-const readText = (cwd: string, file: string) =>
-  existsSync(join(cwd, file)) ? readFileSync(join(cwd, file), "utf8") : "";
 
 function validateStart(run: Run, input: StartInput, cwd: string) {
   const workflow = workflows[input.workflow];
@@ -90,8 +73,9 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
   }
 }
 
-export function start(run: Run, input: StartInput, cwd: string): StepResult {
+export function start(run: Run, input: StartInput, cwd: string, dir = stateDir(cwd)): StepResult {
   validateStart(run, input, cwd);
+  const baseline = fingerprint(cwd);
   const sources = input.targets.map((t) => readText(cwd, t.file));
   const started = revise(run, {
     status: "active",
@@ -103,60 +87,13 @@ export function start(run: Run, input: StartInput, cwd: string): StepResult {
     subject: input.subject ?? [],
     source: input.source ?? null,
     phaseIndex: 0,
-    baseline: fingerprint(cwd),
+    baseline,
+    snapshot: saveSnapshot(cwd, baseline, dir),
     baselineIgnores: sources.reduce((n, s) => n + countIgnores(s), 0),
     baselineTests: sources.flatMap((s) => testFunctions(s).map((t) => t.name)),
   });
   return { run: started, message: `Started ${input.workflow}.\n${nextStep(started)}` };
 }
-
-export function nextStep(run: Run): string {
-  const phase = currentPhase(run);
-  if (phase) {
-    const workflow = workflows[run.workflow ?? "write-test"];
-    const why = run.statusReason ? `\nReturned to this phase because: ${run.statusReason}` : "";
-    return `Phase ${run.phaseIndex + 1}/${workflow.phases.length} "${phase.id}": ${phase.instruction}${why}`;
-  }
-  return `Workflow ${run.status}: ${run.statusReason}`;
-}
-
-const resolveAll = (run: Run, cwd: string): ResolvedTarget[] =>
-  run.targets.map((target) => resolveTarget(cwd, target));
-
-/**
- * Workflows that must preserve tests verify whole test classes, so a fix cannot pass by narrowing
- * the run to one method while sibling tests break or disappear.
- */
-const WHOLE_CLASS: ReadonlySet<RunPurpose> = new Set(["verify", "stress", "measure"]);
-
-function runnable(run: Run, purpose: RunPurpose, cwd: string): ResolvedTarget[] {
-  const resolved = resolveAll(run, cwd);
-  if (!WHOLE_CLASS.has(purpose) || !workflows[run.workflow ?? "write-test"].preserveTests) return resolved;
-  return resolved.map(({ method: _method, ...whole }) => whole);
-}
-
-async function execute(run: Run, purpose: RunPurpose, deps: Deps): Promise<[Run, TestRun]> {
-  const tree = digest(fingerprint(deps.cwd));
-  const execution = await runTargets(
-    deps.exec,
-    runnable(run, purpose, deps.cwd),
-    deps.config,
-    deps.signal,
-  );
-  return addRun(run, { phase: currentPhase(run)?.id ?? "", purpose, tree, ...execution });
-}
-
-export const describeRun = (r: TestRun) => {
-  const failed = r.cases.filter((c) => c.status === "failed");
-  const lines = [
-    `run #${r.id} (${r.purpose}): ${r.outcome}, exit ${r.exitCode}, ${r.cases.length} cases, ${failed.length} failed, ${r.seconds}s`,
-    ...failed
-      .slice(0, 5)
-      .map((c) => `  ✗ ${c.className}.${c.name}: ${c.message ?? c.failureType ?? ""}`),
-  ];
-  if (r.outcome === "build-error" && r.cases.length === 0) lines.push(r.outputTail);
-  return lines.join("\n");
-};
 
 function lintChanged(run: Run, cwd: string) {
   return changes(run, cwd)
@@ -179,9 +116,11 @@ function completeEdit(run: Run, note: string | undefined, deps: Deps): StepResul
     reject(
       `Fix these before continuing:\n${lintErrors.map((f) => `${f.file}:${f.line} ${f.rule}: ${f.message}`).join("\n")}`,
     );
-  const ignores = run.targets.reduce((n, t) => n + countIgnores(readText(deps.cwd, t.file)), 0);
-  if (workflows[run.workflow ?? "write-test"].preserveTests && ignores > run.baselineIgnores)
-    reject("Adding @Ignore to a target test is not allowed in this workflow.");
+  if (run.baseline) {
+    const exempt = new Set(run.workflow === "refactor" ? run.targets.map((t) => t.file) : []);
+    const weakened = weakenedTests(deps.cwd, run.baseline, run.snapshot, changes(run, deps.cwd), exempt);
+    if (weakened.length) reject(`Tests may not be weakened: ${weakened.join("; ")}. Restore them.`);
+  }
   if (run.source) {
     const expected = testFunctions(readText(deps.cwd, run.source)).length;
     const actual = run.targets.reduce(
@@ -221,7 +160,6 @@ function completeFindings(run: Run, deps: Deps): StepResult {
   };
 }
 
-const failedCases = (r: TestRun) => r.cases.filter((c) => c.status === "failed");
 const median = (values: readonly number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
@@ -297,6 +235,8 @@ async function runPhase(run: Run, deps: Deps): Promise<StepResult> {
     }
     case "measure":
       return measure(run, phase.id, deps);
+    case "regression":
+      return regressionCheck(run, deps);
     case "edit":
     case "explore":
     case "findings":
@@ -357,70 +297,6 @@ export async function step(run: Run, note: string | undefined, deps: Deps): Prom
   return { run: current, message: messages.join("\n") };
 }
 
-export interface MutationInput {
-  readonly file: string;
-  readonly find: string;
-  readonly replace: string;
-}
-
-function validateMutation(run: Run, input: MutationInput, cwd: string): string {
-  if (currentPhase(run)?.kind !== "mutation")
-    reject(`Not in a negative-control phase. ${nextStep(run)}`);
-  if (categorize(input.file) !== "production")
-    reject(`${input.file} is not production source; mutate the code under test.`);
-  if (run.subject.length && !run.subject.includes(input.file))
-    reject(`Mutate one of the declared subject files: ${run.subject.join(", ")}.`);
-  if (input.find === input.replace) reject("The replacement must change the code.");
-  const text = readText(cwd, input.file);
-  const count = text.split(input.find).length - 1;
-  if (count !== 1)
-    reject(`find must match exactly once in ${input.file}; it matched ${count} times.`);
-  return text;
-}
-
-/** Apply a mutation, run the targets, and restore the file byte-for-byte, even on failure. */
-export async function mutate(run: Run, input: MutationInput, deps: Deps): Promise<StepResult> {
-  validateMutation(run, input, deps.cwd);
-  const path = join(deps.cwd, input.file);
-  const original = readFileSync(path);
-  const tree = digest(fingerprint(deps.cwd));
-  recordPendingMutation(deps.dir, path, original);
-  let result: [Run, TestRun];
-  try {
-    writeFileSync(path, original.toString("utf8").replace(input.find, input.replace));
-    result = await execute(run, "mutation", deps);
-  } finally {
-    writeFileSync(path, original);
-    clearPendingMutation(deps.dir);
-  }
-  const [next, r] = result;
-  const restored = readFileSync(path).equals(original) && digest(fingerprint(deps.cwd)) === tree;
-  const detected = r.outcome === "failed" && failedCases(r).length > 0;
-  const record = { ...input, runId: r.id, tree, detected, restored };
-  const withRecord = revise(next, { mutations: [...next.mutations, record] });
-  if (!restored)
-    return {
-      run: finish(withRecord, "incomplete", `Could not restore ${input.file}.`),
-      message: "Restore failed.",
-    };
-  if (r.outcome === "build-error")
-    return {
-      run: withRecord,
-      message: `${describeRun(r)}\nThe mutation does not compile. Choose a mutation that compiles and changes behavior.`,
-    };
-  if (!detected) {
-    const reason = `The tests did not detect the mutation in ${input.file}. Strengthen the assertions on the behavior it changed.`;
-    const back = backtrack(withRecord, reason, deps.config);
-    return { run: back, message: `${describeRun(r)}\n${reason}\n${nextStep(back)}` };
-  }
-  let done = advance(withRecord);
-  if (!currentPhase(done)) done = finalize(done, deps);
-  return {
-    run: done,
-    message: `Mutation detected and reverted.\n${describeRun(r)}\n${nextStep(done)}`,
-  };
-}
-
 export function addFinding(run: Run, finding: Omit<Finding, "source">, cwd: string): StepResult {
   if (currentPhase(run)?.kind !== "findings") reject(`Not in a findings phase. ${nextStep(run)}`);
   const text = readText(cwd, finding.file);
@@ -428,6 +304,10 @@ export function addFinding(run: Run, finding: Omit<Finding, "source">, cwd: stri
   const lines = text.split("\n").length;
   if (!Number.isInteger(finding.line) || finding.line < 1 || finding.line > lines)
     reject(`${finding.file} has ${lines} lines; line ${finding.line} is out of range.`);
+  const duplicate = run.findings.some(
+    (f) => f.file === finding.file && f.line === finding.line && f.rule === finding.rule && f.message === finding.message,
+  );
+  if (duplicate) return { run, message: "This finding is already recorded." };
   return {
     run: revise(run, { findings: [...run.findings, { ...finding, source: "agent" }] }),
     message: "Finding recorded.",

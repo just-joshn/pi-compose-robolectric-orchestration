@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 
+import { stripCode } from "./lint.ts";
+
 export interface Target {
   /** Path relative to the workspace root (ctx.cwd). */
   readonly file: string;
@@ -25,12 +27,23 @@ function findUp(start: string, stop: string, names: readonly string[]): string |
   }
 }
 
-/** Read `package` and the first top-level class of a Kotlin or Java test file. */
+/**
+ * Read `package` and the test class: the last top-level class or object declared before the first
+ * @Test, so helper classes above it and annotations on the same line do not confuse it.
+ */
 export function className(source: string, file: string): string {
-  const pkg = /^\s*package\s+([\w.]+)/m.exec(source)?.[1];
-  const cls = /^(?:[\w@()\s]*?\s)?(?:class|object)\s+(\w+)/m.exec(source)?.[1];
-  const name = cls ?? basename(file).replace(/\.(kt|java)$/, "");
-  return pkg ? `${pkg}.${name}` : name;
+  const code = stripCode(source);
+  const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
+  const firstTest = code.search(/@(org\.junit\.)?Test\b/);
+  const declaration =
+    /^(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
+  let name: string | undefined;
+  for (const match of code.matchAll(declaration)) {
+    if (firstTest >= 0 && (match.index ?? 0) > firstTest) break;
+    name = match[1];
+  }
+  const resolved = name ?? basename(file).replace(/\.(kt|java)$/, "");
+  return pkg ? `${pkg}.${resolved}` : resolved;
 }
 
 export function resolveTarget(cwd: string, target: Target): ResolvedTarget {

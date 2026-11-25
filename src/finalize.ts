@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { weakenedTests } from "./baseline.ts";
 import type { Config } from "./config.ts";
 import { countIgnores, lintTestSource } from "./lint.ts";
 import { categorize, isKotlinOrJava } from "./paths.ts";
@@ -11,7 +12,11 @@ import { workflows } from "./workflows.ts";
 
 const passingRuns = (run: Run) =>
   run.runs.filter(
-    (r) => r.outcome === "passed" && r.purpose !== "mutation" && r.purpose !== "probe",
+    (r) =>
+      r.outcome === "passed" &&
+      r.purpose !== "mutation" &&
+      r.purpose !== "probe" &&
+      r.purpose !== "regression",
   );
 
 const hasCase = (r: TestRun, name: string) =>
@@ -21,7 +26,7 @@ const read = (cwd: string, file: string) =>
   existsSync(join(cwd, file)) ? readFileSync(join(cwd, file), "utf8") : "";
 
 /** Every check the final status depends on. Each returns a problem or nothing. */
-function problems(run: Run, deps: { cwd: string; config: Config }): string[] {
+export function problems(run: Run, deps: { cwd: string; config: Config }): string[] {
   const workflow = workflows[run.workflow ?? "write-test"];
   const found: string[] = [];
   const changed = changes(run, deps.cwd);
@@ -40,11 +45,19 @@ function problems(run: Run, deps: { cwd: string; config: Config }): string[] {
       `The tree changed after the last passing run (#${lastPass.id}); it must be verified again.`,
     );
 
-  if (workflow.phases.some((p) => p.kind === "mutation")) {
+  const needsControl = workflow.phases.some((p) => p.kind === "mutation" || p.kind === "regression");
+  if (needsControl) {
     const mutation = [...run.mutations].reverse().find((m) => m.detected && m.restored);
-    if (!mutation) found.push("No detected and restored negative-control mutation was recorded.");
-    else if (lastPass && mutation.tree !== lastPass.tree)
+    const regression = run.runs.findLast((r) => r.purpose === "regression" && r.outcome === "failed");
+    const proven = [mutation?.tree, regression?.tree].filter((t) => t !== undefined);
+    if (proven.length === 0) found.push("No negative control or regression check proved that the tests detect the behavior.");
+    else if (lastPass && !proven.includes(lastPass.tree))
       found.push("The negative control ran against a different tree than the last passing run.");
+  }
+
+  if (run.baseline) {
+    const exempt = new Set(run.workflow === "refactor" ? run.targets.map((t) => t.file) : []);
+    found.push(...weakenedTests(deps.cwd, run.baseline, run.snapshot, changed, exempt).map((p) => `Weakened tests: ${p}.`));
   }
 
   if (workflow.preserveTests && lastPass) {
@@ -82,5 +95,19 @@ export function finalize(run: Run, deps: { cwd: string; config: Config }): Run {
   }
   const reason = found.join(" ");
   const back = backtrack(run, reason, deps.config);
+  return back.status === "active" ? back : finish(run, "incomplete", reason);
+}
+
+/**
+ * Re-check a verified run against the live tree. Changes made after verification reopen the run
+ * at its last edit phase, so the reported VERIFIED always describes the final tree.
+ */
+export function recheck(run: Run, deps: { cwd: string; config: Config }): Run {
+  if (run.status !== "verified") return run;
+  const found = problems(run, deps);
+  if (found.length === 0) return run;
+  const reason = `Files changed after verification. ${found.join(" ")}`;
+  const phases = workflows[run.workflow ?? "write-test"].phases;
+  const back = backtrack({ ...run, status: "active", phaseIndex: phases.length }, reason, deps.config);
   return back.status === "active" ? back : finish(run, "incomplete", reason);
 }

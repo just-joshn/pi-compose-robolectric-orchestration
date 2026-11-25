@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,14 +15,8 @@ import { runTargets } from "../src/runner.ts";
 import { addRun, finish, lastRun, newRun, parseRun, terminal } from "../src/state.ts";
 import { changedPaths, digest, fingerprint } from "../src/tree.ts";
 import { isWorkflowId, routingTable, workflowIds, workflows } from "../src/workflows.ts";
-import {
-  acquireLock,
-  clearPendingMutation,
-  recordPendingMutation,
-  recoverPendingMutation,
-  releaseLock,
-  stateDir,
-} from "../src/workspace.ts";
+import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
+import { acquireLock, releaseLock, stateDir } from "../src/workspace.ts";
 import { fakeGradle, git, MAIN_FILE, passingTest, TEST_FILE, workspace, write } from "./helpers.ts";
 
 describe("categorize", () => {
@@ -262,18 +257,38 @@ describe("workspace state", () => {
     releaseLock(dir, "s3");
   });
 
-  it("restores an interrupted mutation exactly once", () => {
+  it("restores swapped files, deletes created ones and keeps files someone else changed", async () => {
     const dir = stateDir("/other/workspace", env);
+    const root = mkdtempSync(join(tmpdir(), "compose-test-swap-"));
+    const a = join(root, "A.kt");
+    const b = join(root, "B.kt");
+    writeFileSync(a, "original");
+    const { conflicts } = await withSwappedFiles(dir, [{ path: a, content: Buffer.from("mutated") }, { path: b, content: Buffer.from("new") }], async () => {
+      expect(readFileSync(a, "utf8")).toBe("mutated");
+      writeFileSync(b, "edited meanwhile");
+    });
+    expect(readFileSync(a, "utf8")).toBe("original");
+    expect(readFileSync(b, "utf8")).toBe("edited meanwhile");
+    expect(conflicts).toEqual([b]);
+    await expect(withSwappedFiles(dir, [{ path: a, content: null }], async () => {
+      throw new Error("boom");
+    })).rejects.toThrow("boom");
+    expect(readFileSync(a, "utf8")).toBe("original");
+  });
+
+  it("repairs a swap left behind by a crash exactly once", () => {
+    const dir = stateDir("/crash/workspace", env);
     const file = join(mkdtempSync(join(tmpdir(), "compose-test-mut-")), "Foo.kt");
-    writeFileSync(file, "original");
-    recordPendingMutation(dir, file, Buffer.from("original"));
     writeFileSync(file, "mutated");
-    expect(recoverPendingMutation(dir)).toBe(file);
+    const record = [{ path: file, original: Buffer.from("original").toString("base64"), written: createHash("sha256").update("mutated").digest("hex") }];
+    writeFileSync(join(dir, "swap.json"), JSON.stringify(record));
+    expect(recoverSwap(dir)).toEqual({ restored: [file], conflicts: [] });
     expect(readFileSync(file, "utf8")).toBe("original");
-    expect(recoverPendingMutation(dir)).toBeUndefined();
-    recordPendingMutation(dir, file, Buffer.from("original"));
-    expect(recoverPendingMutation(dir)).toBeUndefined();
-    clearPendingMutation(dir);
+    expect(recoverSwap(dir)).toEqual({ restored: [], conflicts: [] });
+    writeFileSync(join(dir, "swap.json"), JSON.stringify(record));
+    writeFileSync(file, "operator edit");
+    expect(recoverSwap(dir).conflicts[0]).toContain(file);
+    expect(readFileSync(file, "utf8")).toBe("operator edit");
   });
 });
 

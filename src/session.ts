@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadConfig } from "./config.ts";
 import type { Deps } from "./engine.ts";
 import type { Exec } from "./runner.ts";
-import { parseRun, type Run, terminal } from "./state.ts";
+import { parseRun, type Run } from "./state.ts";
 import { releaseLock, stateDir } from "./workspace.ts";
 
 export const STATE_ENTRY = "compose-test-state";
@@ -12,7 +12,6 @@ export const STATE_ENTRY = "compose-test-state";
 export class Session {
   private current: Run | null = null;
   private queue: Promise<unknown> = Promise.resolve();
-  reportedRevision = -1;
   settledRevision = -1;
 
   private readonly pi: ExtensionAPI;
@@ -39,7 +38,6 @@ export class Session {
         found = parseRun(entry.data) ?? found;
     }
     this.current = found;
-    this.reportedRevision = found && terminal(found.status) ? found.revision : -1;
     this.settledRevision = -1;
   }
 

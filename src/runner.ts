@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { parseJUnitXml, type TestCase } from "./junit.ts";
@@ -44,19 +44,22 @@ function groupByInvocation(targets: readonly ResolvedTarget[]) {
   return [...groups.values()];
 }
 
-function collectCases(targets: readonly ResolvedTarget[], task: string): TestCase[] {
-  const cases: TestCase[] = [];
-  for (const target of targets) {
-    const file = join(resultsDir(target, task), `TEST-${target.className}.xml`);
-    if (!existsSync(file)) continue;
-    const parsed = parseJUnitXml(readFileSync(file, "utf8"));
-    cases.push(
-      ...parsed.filter(
-        (c) => !target.method || c.name === target.method || c.name.startsWith(`${target.method}[`),
-      ),
-    );
-  }
-  return cases;
+/** JUnit XML for the class and its nested classes (TEST-a.Foo.xml, TEST-a.Foo$Inner.xml). */
+function reportFiles(target: ResolvedTarget, task: string): string[] {
+  const dir = resultsDir(target, task);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f === `TEST-${target.className}.xml` || f.startsWith(`TEST-${target.className}$`))
+    .map((f) => join(dir, f));
+}
+
+const matchesMethod = (target: ResolvedTarget, c: TestCase) =>
+  !target.method || c.name === target.method || c.name.startsWith(`${target.method}[`);
+
+function casesFor(target: ResolvedTarget, task: string): TestCase[] {
+  return reportFiles(target, task).flatMap((file) =>
+    parseJUnitXml(readFileSync(file, "utf8")).filter((c) => matchesMethod(target, c)),
+  );
 }
 
 const tail = (text: string) =>
@@ -66,9 +69,10 @@ const tail = (text: string) =>
     .slice(-30)
     .join("\n");
 
-function outcomeOf(exitCode: number, cases: readonly TestCase[]): RunOutcome {
-  if (cases.some((c) => c.status === "failed")) return "failed";
-  if (cases.length === 0) return exitCode === 0 ? "no-tests" : "build-error";
+/** Every target must have produced at least one case; a missing one cannot hide behind another. */
+function outcomeOf(exitCode: number, perTarget: readonly (readonly TestCase[])[]): RunOutcome {
+  if (perTarget.some((cases) => cases.length === 0)) return exitCode === 0 ? "no-tests" : "build-error";
+  if (perTarget.some((cases) => cases.some((c) => c.status === "failed"))) return "failed";
   return exitCode === 0 ? "passed" : "build-error";
 }
 
@@ -90,9 +94,7 @@ export async function runTargets(
     const first = group[0];
     if (!first) continue;
     for (const target of group)
-      rmSync(join(resultsDir(target, config.unitTestTask), `TEST-${target.className}.xml`), {
-        force: true,
-      });
+      for (const file of reportFiles(target, config.unitTestTask)) rmSync(file, { force: true });
     const gradle = gradleCommand(first.gradleRoot, config.gradle);
     const args = [
       "--console=plain",
@@ -109,11 +111,12 @@ export async function runTargets(
     if (result.code !== 0) exitCode = result.code;
     outputs.push(result.stdout, result.stderr);
   }
-  const cases = collectCases(targets, config.unitTestTask);
+  const perTarget = targets.map((target) => casesFor(target, config.unitTestTask));
+  const cases = [...new Map(perTarget.flat().map((c) => [`${c.className}#${c.name}`, c])).values()];
   return {
     command: commands.join(" && "),
     exitCode,
-    outcome: outcomeOf(exitCode, cases),
+    outcome: outcomeOf(exitCode, perTarget),
     cases,
     seconds: Math.round((Date.now() - started) / 100) / 10,
     outputTail: tail(outputs.join("\n")),

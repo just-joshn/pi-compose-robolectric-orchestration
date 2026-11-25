@@ -29,10 +29,25 @@ function requireRun(session: Session): Run {
 
 function respond(session: Session, result: StepResult) {
   const run = session.set(result.run);
+  return reply(run, result.message);
+}
+
+function reply(run: Run, message: string) {
   return {
-    content: text(result.message),
+    content: text(message),
     details: { status: run.status, workflow: run.workflow, phase: currentPhase(run)?.id ?? null },
   };
+}
+
+/**
+ * Store a long-running result only if nothing else changed the run meanwhile, for example an
+ * operator cancel during a Gradle run. Otherwise the newer state wins and the result is dropped.
+ */
+function commit(session: Session, before: Run, result: StepResult) {
+  const now = session.run;
+  if (now && now.revision !== before.revision)
+    return reply(now, `Discarded this result because the run changed while it ran (now ${now.status}).\n${result.message}`);
+  return respond(session, result);
 }
 
 const target = Type.Object({
@@ -67,6 +82,7 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
           ...(params.source ? { source: params.source } : {}),
         },
         ctx.cwd,
+        stateDir(ctx.cwd),
       );
       acquireLock(stateDir(ctx.cwd), ctx.sessionManager.getSessionId());
       const refs = referencePaths(params.workflow).join("\n");
@@ -84,9 +100,10 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       "Complete the current compose-test phase. For explore phases pass a note. For test-running phases the extension runs Gradle and decides the outcome.",
     parameters: Type.Object({ note: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _update, ctx) {
-      return session.exclusive(async () =>
-        respond(session, await step(requireRun(session), params.note, session.deps(ctx, signal))),
-      );
+      return session.exclusive(async () => {
+        const before = requireRun(session);
+        return commit(session, before, await step(before, params.note, session.deps(ctx, signal)));
+      });
     },
   });
 
@@ -97,9 +114,10 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       "Negative control: temporarily replace `find` (exactly one match) with `replace` in a production file, run the targets, and restore the file. The tests must fail.",
     parameters: Type.Object({ file: Type.String(), find: Type.String(), replace: Type.String() }),
     async execute(_id, params, signal, _update, ctx) {
-      return session.exclusive(async () =>
-        respond(session, await mutate(requireRun(session), params, session.deps(ctx, signal))),
-      );
+      return session.exclusive(async () => {
+        const before = requireRun(session);
+        return commit(session, before, await mutate(before, params, session.deps(ctx, signal)));
+      });
     },
   });
 
@@ -115,7 +133,7 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       message: Type.String(),
     }),
     async execute(_id, params, _signal, _update, ctx) {
-      return respond(session, addFinding(requireRun(session), params, ctx.cwd));
+      return session.exclusive(async () => respond(session, addFinding(requireRun(session), params, ctx.cwd)));
     },
   });
 

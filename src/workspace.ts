@@ -11,7 +11,7 @@ export function stateDir(cwd: string, env = process.env): string {
   return dir;
 }
 
-function atomicWrite(path: string, content: string) {
+export function atomicWrite(path: string, content: string) {
   const temp = `${path}.${process.pid}.tmp`;
   writeFileSync(temp, content);
   renameSync(temp, path);
@@ -52,34 +52,4 @@ export function releaseLock(dir: string, session: string): void {
   if (!existsSync(path)) return;
   const owner = JSON.parse(readFileSync(path, "utf8")) as LockOwner;
   if (owner.session === session) rmSync(path, { force: true });
-}
-
-interface PendingMutation {
-  readonly file: string;
-  readonly original: string;
-}
-
-/** Record the original bytes before a mutation is applied, so a crash can never leave it in place. */
-export function recordPendingMutation(dir: string, file: string, original: Buffer): void {
-  atomicWrite(
-    join(dir, "mutation.json"),
-    JSON.stringify({ file, original: original.toString("base64") } satisfies PendingMutation),
-  );
-}
-
-export function clearPendingMutation(dir: string): void {
-  rmSync(join(dir, "mutation.json"), { force: true });
-}
-
-/** Restore a mutation left behind by a crash. Idempotent. Returns the restored file, if any. */
-export function recoverPendingMutation(dir: string): string | undefined {
-  const path = join(dir, "mutation.json");
-  if (!existsSync(path)) return undefined;
-  const pending = JSON.parse(readFileSync(path, "utf8")) as PendingMutation;
-  const original = Buffer.from(pending.original, "base64");
-  const current = existsSync(pending.file) ? readFileSync(pending.file) : undefined;
-  const changed = !current || !current.equals(original);
-  if (changed) writeFileSync(pending.file, original);
-  clearPendingMutation(dir);
-  return changed ? pending.file : undefined;
 }

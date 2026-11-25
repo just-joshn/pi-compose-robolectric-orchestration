@@ -215,9 +215,7 @@ describe("fix-failing workflow", () => {
     await expect(step(run, undefined, d)).rejects.toThrow(/@Ignore/);
     write(root, TEST_FILE, passingTest);
     write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
-    const done = await step(run, undefined, d);
-    expect(done.run.status).toBe("active");
-    expect(done.run.statusReason).toContain("Original tests missing");
+    await expect(step(run, undefined, d)).rejects.toThrow(/lost tests: other/);
   });
 
   it("reproduces one method but verifies the whole class, so sibling tests count", async () => {
@@ -260,7 +258,7 @@ describe("fix-flaky workflow", () => {
   it("records the probe and verifies only when every stress run passes", async () => {
     const root = workspace();
     let flaky = true;
-    const d = deps(root, fakeGradle(root, () => (flaky ? "flaky" : "pass")).exec, {
+    const d = deps(root, fakeGradle(root, (main) => (flaky ? "flaky" : behavior(main))).exec, {
       stressRuns: 3,
     });
     let run = start(
@@ -274,7 +272,9 @@ describe("fix-flaky workflow", () => {
     const stillFlaky = await step(run, undefined, d);
     expect(currentPhase(stillFlaky.run)?.id).toBe("fix");
     flaky = false;
-    const done = await step(stillFlaky.run, undefined, d);
+    const stable = await step(stillFlaky.run, undefined, d);
+    expect(currentPhase(stable.run)?.kind).toBe("mutation");
+    const done = await mutate(stable.run, BREAK, d);
     expect(done.run.status).toBe("verified");
   });
 });

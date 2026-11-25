@@ -15,6 +15,8 @@ export interface Config {
   readonly maxStalls: number;
   /** Failed checks that send a run back to an edit phase before it ends as incomplete. */
   readonly maxBacktracks: number;
+  /** Settle continuations per run, progress or not, before it ends as incomplete. */
+  readonly maxNudges: number;
 }
 
 export const defaults: Config = {
@@ -26,6 +28,7 @@ export const defaults: Config = {
   minSpeedup: 0.05,
   maxStalls: 3,
   maxBacktracks: 3,
+  maxNudges: 8,
 };
 
 const positiveInteger = (value: unknown) =>
@@ -65,4 +68,13 @@ export function loadConfig(cwd: string, projectTrusted: boolean, env = process.e
   const project = projectTrusted ? readConfigFile(join(cwd, ".pi", "compose-test.json")) : {};
   const gradle = env["COMPOSE_TEST_GRADLE"];
   return { ...defaults, ...global, ...project, ...(gradle ? { gradle } : {}) };
+}
+
+/** Config for code paths that must not fail, such as the settle gate: errors fall back to defaults. */
+export function safeConfig(cwd: string, projectTrusted: boolean): { config: Config; error?: string } {
+  try {
+    return { config: loadConfig(cwd, projectTrusted) };
+  } catch (error) {
+    return { config: defaults, error: error instanceof Error ? error.message : String(error) };
+  }
 }
