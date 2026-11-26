@@ -1,10 +1,11 @@
 import { relative } from "node:path";
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-  SessionBoundaryDraft,
+import {
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ExtensionContext,
+  isReadToolResult,
+  type SessionBoundaryDraft,
 } from "@earendil-works/pi-coding-agent";
 
 import { recheck } from "./checks.ts";
@@ -117,7 +118,8 @@ function registerToolGates(pi: ExtensionAPI, session: Session) {
 
   pi.on("tool_result", async (event, ctx) => {
     const run = session.run;
-    if (run?.status !== "active" || event.toolName !== "read" || event.isError) return;
+    if (run?.status !== "active" || !isReadToolResult(event) || event.isError) return;
+    if (event.details?.truncation?.truncated) return;
     if (event.input["offset"] !== undefined || event.input["limit"] !== undefined) return;
     const path = relative(ctx.cwd, toolPath(ctx.cwd, pathOf(event.input)));
     if (!run.reads.includes(path)) session.set({ ...run, reads: [...run.reads, path] });

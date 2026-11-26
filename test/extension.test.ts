@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createReadTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Exec } from "../src/gradle.ts";
@@ -320,6 +320,23 @@ describe("edits through a symlink", () => {
 });
 
 describe("the review read gate", () => {
+  it("does not accept a truncated read as a whole-file review", async () => {
+    const root = workspace();
+    write(root, TEST_FILE, "// line\n".repeat(2100));
+    const h = harness(root);
+    await h.run("review inspect");
+    await h.call("compose_test_start", { workflow: "review", targets: [{ file: TEST_FILE }] });
+    const result = await createReadTool(root).execute("id", { path: TEST_FILE });
+    expect(result.details).toMatchObject({ truncation: { truncated: true } });
+    await h.emit("tool_result", {
+      toolName: "read",
+      input: { path: TEST_FILE },
+      isError: false,
+      ...result,
+    });
+    await expect(h.call("compose_test_step")).rejects.toThrow(/Read every target/);
+  });
+
   it("counts only reads of whole files", async () => {
     const root = workspace();
     const h = harness(root);
