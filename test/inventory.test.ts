@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { finalize } from "../src/checks.ts";
 import { start } from "../src/engine.ts";
-import { testClasses } from "../src/gradle.ts";
+import { type Exec, runTargets, testClasses } from "../src/gradle.ts";
 import { newRun, type TestRun } from "../src/state.ts";
 import { digest, fingerprint } from "../src/tree.ts";
-import { TEST_FILE, workspace } from "./helpers.ts";
+import { deps, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
 
 const tests = (source: string) =>
   testClasses(source, "FooTest.kt").map((c) => `${c.name}: ${c.tests.join(", ")}`);
@@ -54,5 +54,32 @@ class FooTest {
       tree: digest(fingerprint(root)),
     };
     expect(finalize({ ...run, runs: [measured] }, root).status).toBe("verified");
+  });
+});
+
+describe("an abstract base class in the target file", () => {
+  const source = `package a
+abstract class GreetingContract {
+  @Test fun isNotBlank() { assert(true) }
+}
+sealed class Shapes {
+  @Test fun closed() { assert(true) }
+}
+class FooTest : GreetingContract() {
+  @Test fun greets() { assert(true) }
+}
+`;
+
+  it("is not run as a class of its own, since its tests run under subclasses", async () => {
+    expect(tests(source)).toEqual(["a.FooTest: greets"]);
+    const root = workspace({ test: source });
+    const cases = ["isNotBlank", "greets"].map(
+      (n) => `<testcase name="${n}" classname="a.FooTest"/>`,
+    );
+    const exec: Exec = async () => {
+      write(root, RESULT_XML, `<testsuite>${cases.join("")}</testsuite>`);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    expect((await runTargets(deps(root, exec), [{ file: TEST_FILE }])).outcome).toBe("passed");
   });
 });

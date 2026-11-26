@@ -74,7 +74,7 @@ export interface TestClass {
 }
 
 const DECLARATION =
-  /^[ \t]*((?:@[\w.]+(?:\([^)]*\))?\s+)*)(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
+  /^[ \t]*((?:@[\w.]+(?:\([^)]*\))?\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*)(?:class|object)\s+(\w+)/gm;
 
 /** Whether an offset lies in the body of an @Ignore'd class, nested ones included. */
 function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], ignore: RegExp) {
@@ -87,8 +87,9 @@ function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], 
 }
 
 /**
- * Every top-level class holding @Test functions JUnit runs, each with those tests. With none, the
- * last top-level class, or the file name, so a file that has no tests yet still names a class.
+ * Every concrete top-level class holding @Test functions JUnit runs, each with those tests; an
+ * abstract class's tests run under its subclasses. With none, the last concrete top-level class,
+ * or the file name, so a file that has no tests yet still names a class.
  */
 export function testClasses(source: string, file: string): TestClass[] {
   const code = stripCode(source);
@@ -102,12 +103,11 @@ export function testClasses(source: string, file: string): TestClass[] {
   const ignore = annotation(code, "Ignore");
   const skipped = inIgnoredClass(code, declarations, ignore);
   const tests = testFunctions(source).filter((t) => !ignore.test(t.header) && !skipped(t.at));
-  const classes = tops.map((m, i) => {
+  const classes = tops.flatMap((m, i) => {
+    if (/\b(abstract|sealed)\s/.test(m[2] ?? "")) return [];
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
-    return {
-      name: qualify(m[2] ?? ""),
-      tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name),
-    };
+    const name = qualify(m[3] ?? "");
+    return [{ name, tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name) }];
   });
   const withTests = classes.filter((c) => c.tests.length > 0);
   if (withTests.length) return withTests;
