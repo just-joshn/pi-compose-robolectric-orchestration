@@ -76,7 +76,7 @@ export class Session {
       const before = this.require();
       const result = await work(before);
       const now = this.require();
-      if (now.revision === before.revision) return this.respond(result);
+      if (now.id === before.id && now.revision === before.revision) return this.respond(result);
       return reply(
         now,
         `Discarded: the run changed while this ran (now ${now.status}).\n${result.message}`,

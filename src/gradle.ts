@@ -61,7 +61,7 @@ export function className(source: string, file: string): string {
   const firstTest = code.search(/@(org\.junit\.)?Test\b/);
   const declaration =
     /^(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
-  let name = basename(file).replace(/\.(kt|java)$/, "");
+  let name = basename(file).replace(/\.kt$/, "");
   for (const match of code.matchAll(declaration)) {
     if (firstTest >= 0 && (match.index ?? 0) > firstTest) break;
     name = match[1] ?? name;

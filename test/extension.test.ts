@@ -274,3 +274,27 @@ describe("session lifecycle and commands", () => {
     expect(h.complete("zzz")).toBeNull();
   });
 });
+
+describe("a superseded run's late result", () => {
+  it("never overwrites the run that replaced it, even at the same revision", async () => {
+    const root = workspace({ test: null });
+    const gradle = fakeGradle(root, behavior);
+    const started = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const h = harness(root, async (c, a, o) => {
+      started.resolve();
+      await gate.promise;
+      return gradle.exec(c, a, o);
+    });
+    await h.run("first goal");
+    await h.call("compose_test_start", { workflow: "write-test", targets: [{ file: TEST_FILE }] });
+    write(root, TEST_FILE, passingTest);
+    const late = h.call("compose_test_step");
+    await started.promise;
+    await h.run("second goal");
+    await h.call("compose_test_start", { workflow: "write-test", targets: [{ file: TEST_FILE }] });
+    gate.resolve();
+    expect((await late).content[0]?.text).toContain("Discarded");
+    expect(await h.status()).toContain("Goal: second goal");
+  });
+});

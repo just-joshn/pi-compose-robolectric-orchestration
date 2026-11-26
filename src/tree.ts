@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { categorize } from "./workflows.ts";
+import { categorize } from "./paths.ts";
 
 /** The working tree as HEAD plus a truncated content hash for every path that differs from it: dirty and untracked files, files git hides that sit in source sets or build files, and every file when there is no git. Build output directories are never included. */
 export interface Fingerprint {

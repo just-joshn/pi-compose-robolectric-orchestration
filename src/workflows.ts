@@ -2,23 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type Category = "test" | "build" | "production" | "other";
-
-export function categorize(path: string): Category {
-  const p = path.replaceAll("\\", "/");
-  if (/(^|\/)src\/(test|androidTest|sharedTest)[A-Za-z]*\/|(^|\/)robolectric\.properties$/.test(p))
-    return "test";
-  if (
-    /(^|\/)(build\.gradle(\.kts)?|settings\.gradle(\.kts)?|gradle\.properties|libs\.versions\.toml|gradle-wrapper\.properties)$/.test(
-      p,
-    )
-  )
-    return "build";
-  if (/(^|\/)src\/[A-Za-z]+\//.test(p)) return "production";
-  return "other";
-}
-
-export const isSource = (path: string) => /\.(kt|java)$/.test(path);
+import type { Category } from "./paths.ts";
 
 /** The model completes "edit" and "findings" phases with compose_test_step and "mutation" with compose_test_mutate. The extension executes every other kind and decides its outcome. */
 export type PhaseKind =

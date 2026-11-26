@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
+
 import type { Outcome, Target, TestCase } from "./gradle.ts";
-import { isArrayOf, isRecord, isString } from "./guards.ts";
+import { isArrayOf, isRecord, isString, isStringRecord } from "./guards.ts";
 import type { LintFinding } from "./lint.ts";
 import type { Fingerprint } from "./tree.ts";
 import { isWorkflowId, type Phase, type WorkflowId, workflows } from "./workflows.ts";
@@ -38,7 +40,9 @@ export type Status = "routing" | "active" | "verified" | "blocked" | "incomplete
 const STATUSES: readonly Status[] = ["routing", "active", "verified", "blocked", "incomplete"];
 
 export interface Run {
-  readonly version: 2;
+  readonly version: 3;
+  /** Distinguishes runs, since each new run's revision starts at 0 again. */
+  readonly id: string;
   readonly goal: string;
   readonly status: Status;
   readonly statusReason: string;
@@ -70,7 +74,8 @@ export const terminal = (status: Status) =>
   status === "verified" || status === "blocked" || status === "incomplete";
 
 export const newRun = (goal: string, forcedWorkflow: WorkflowId | null): Run => ({
-  version: 2,
+  version: 3,
+  id: randomUUID(),
   goal,
   status: "routing",
   statusReason: "",
@@ -129,24 +134,50 @@ function reachable(workflow: WorkflowId | null, status: Status, phase: number): 
   return phase >= 0 && phase <= (status === "active" ? phases - 1 : phases);
 }
 
+const hasStrings = (v: Record<string, unknown>, keys: readonly string[]) =>
+  keys.every((k) => isString(v[k]));
+const hasNumbers = (v: Record<string, unknown>, keys: readonly string[]) =>
+  keys.every((k) => typeof v[k] === "number");
+
+const isCase = (v: unknown): v is TestCase =>
+  isRecord(v) && hasStrings(v, ["className", "name", "status"]) && hasNumbers(v, ["seconds"]);
+const isTestRun = (v: unknown): v is TestRun =>
+  isRecord(v) &&
+  hasStrings(v, ["phase", "purpose", "command", "outcome", "outputTail", "tree"]) &&
+  hasNumbers(v, ["id", "exitCode", "seconds"]) &&
+  isArrayOf(v["cases"], isCase);
+const isMutation = (v: unknown): v is Mutation =>
+  isRecord(v) &&
+  hasStrings(v, ["file", "find", "replace", "tree"]) &&
+  hasNumbers(v, ["runId"]) &&
+  typeof v["detected"] === "boolean";
+const isFinding = (v: unknown): v is Finding =>
+  isRecord(v) &&
+  hasStrings(v, ["file", "rule", "severity", "message", "source"]) &&
+  hasNumbers(v, ["line"]);
+const isFingerprint = (v: unknown): v is Fingerprint =>
+  isRecord(v) && isNullable(v["head"], isString) && isStringRecord(v["files"]);
+
 const isStatus = (v: unknown): v is Status => STATUSES.some((s) => s === v);
 const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
 
-/** A persisted run whose top-level fields have the current types and whose phase is reachable. */
+/** A persisted run with the current shape and a reachable phase. */
 export function isRun(v: unknown): v is Run {
-  if (!isRecord(v) || v["version"] !== 2) return false;
+  if (!isRecord(v) || v["version"] !== 3) return false;
   const { workflow, status, phaseIndex } = v;
   if (!isWorkflowOrNull(workflow) || !isStatus(status) || !isNumber(phaseIndex)) return false;
   return (
     isWorkflowOrNull(v["forcedWorkflow"]) &&
-    ["goal", "statusReason"].every((k) => isString(v[k])) &&
+    ["id", "goal", "statusReason"].every((k) => isString(v[k])) &&
     ["nudges", "backtracks", "reported", "revision"].every((k) => isNumber(v[k])) &&
     ["subject", "baselineTests", "reads"].every((k) => isArrayOf(v[k], isString)) &&
-    ["runs", "mutations", "findings"].every((k) => isArrayOf(v[k], isRecord)) &&
+    isArrayOf(v["runs"], isTestRun) &&
+    isArrayOf(v["mutations"], isMutation) &&
+    isArrayOf(v["findings"], isFinding) &&
     isArrayOf(v["targets"], isTarget) &&
     isNullable(v["source"], isString) &&
     isNullable(v["snapshot"], isString) &&
-    isNullable(v["baseline"], isRecord) &&
+    isNullable(v["baseline"], isFingerprint) &&
     reachable(workflow, status, phaseIndex)
   );
 }

@@ -8,10 +8,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { recheck } from "./checks.ts";
+import { categorize } from "./paths.ts";
 import { currentPhase, finish, newRun, nextStep, report, type Run, terminal } from "./state.ts";
 import { recoverSwap, stateDir } from "./swap.ts";
 import { registerTools, Session } from "./tools.ts";
-import { categorize, isWorkflowId, kickoff, workflowIds } from "./workflows.ts";
+import { isWorkflowId, kickoff, workflowIds } from "./workflows.ts";
 
 /** Continuations without progress before a run ends as INCOMPLETE. */
 const MAX_NUDGES = 3;

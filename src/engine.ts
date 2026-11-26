@@ -12,6 +12,7 @@ import {
 } from "./checks.ts";
 import { type Exec, runTargets, type Target } from "./gradle.ts";
 import { type LintFinding, lintTestSource, testFunctions } from "./lint.ts";
+import { categorize, isSource } from "./paths.ts";
 import {
   addRun,
   advance,
@@ -28,14 +29,7 @@ import {
 } from "./state.ts";
 import { type FileSwap, stateDir, withSwappedFiles } from "./swap.ts";
 import { digest, fingerprint } from "./tree.ts";
-import {
-  categorize,
-  isSource,
-  type Phase,
-  type PhaseKind,
-  type WorkflowId,
-  workflows,
-} from "./workflows.ts";
+import { type Phase, type PhaseKind, type WorkflowId, workflows } from "./workflows.ts";
 
 export interface Deps {
   readonly cwd: string;
@@ -76,10 +70,8 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
   for (const { file } of input.targets) {
     if (file.startsWith("/") || file.includes(".."))
       reject(`Target ${file} must be relative to the workspace root.`);
-    if (runsTests && !/(^|\/)src\/test[A-Za-z]*\/.*\.(kt|java)$/.test(file))
-      reject(
-        `Target ${file} must be a .kt or .java test under src/test (Robolectric runs local tests).`,
-      );
+    if (runsTests && !/(^|\/)src\/test[A-Za-z]*\/.*\.kt$/.test(file))
+      reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
     if (!workflow.createsTargets && !existsSync(join(cwd, file)))
       reject(`Target ${file} does not exist.`);
   }

@@ -13,12 +13,14 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { start } from "../src/engine.ts";
 import { className, gradleConfig, parseJUnitXml, runTargets } from "../src/gradle.ts";
 import { lintTestSource } from "../src/lint.ts";
+import { categorize } from "../src/paths.ts";
 import { addRun, finish, isRun, newRun, report } from "../src/state.ts";
 import { recoverSwap, stateDir, withSwappedFiles } from "../src/swap.ts";
 import { changedPaths, digest, fingerprint } from "../src/tree.ts";
-import { categorize, kickoff, methodology, workflowIds, workflows } from "../src/workflows.ts";
+import { kickoff, methodology, workflowIds, workflows } from "../src/workflows.ts";
 import {
   commit,
   fakeGradle,
@@ -402,5 +404,46 @@ describe("untrusted input at the boundaries", () => {
     expect(lintTestSource("app/src/test/A.kt", "")).toEqual([]);
     expect(categorize("")).toBe("other");
     expect(className("", "A.kt")).toBe("A");
+  });
+});
+
+describe("maintainability review regressions", () => {
+  it("rejects persisted runs whose nested records have the wrong shape", () => {
+    const run = newRun("g", null);
+    for (const patch of [
+      { runs: [{}] },
+      { mutations: [{ file: 1 }] },
+      { findings: [{ file: "a" }] },
+      { baseline: { head: 1, files: {} } },
+      { baseline: { head: null, files: { a: 1 } } },
+    ])
+      expect(isRun({ ...run, ...patch })).toBe(false);
+  });
+
+  it("gives every run its own identity", () => {
+    expect(newRun("g", null).id).not.toBe(newRun("g", null).id);
+  });
+
+  it("reports conflicts even when the swapped work throws", async () => {
+    const dir = stateDir("/throws", { PI_COMPOSE_TEST_HOME: mkdtempSync(join(tmpdir(), "ct-")) });
+    const file = join(mkdtempSync(join(tmpdir(), "ct-swap-")), "A.kt");
+    writeFileSync(file, "original");
+    const work = async () => {
+      writeFileSync(file, "edited meanwhile");
+      throw new Error("gradle crashed");
+    };
+    const swap = withSwappedFiles(dir, [{ path: file, content: Buffer.from("mutated") }], work);
+    await expect(swap).rejects.toThrow(/gradle crashed[\s\S]*A\.kt/);
+    expect(readFileSync(file, "utf8")).toBe("edited meanwhile");
+  });
+
+  it("accepts only Kotlin test targets", () => {
+    const root = workspace();
+    write(root, "app/src/test/java/a/FooTest.java", "class FooTest {}");
+    const input = {
+      workflow: "write-test" as const,
+      targets: [{ file: "app/src/test/java/a/FooTest.java" }],
+    };
+    expect(() => start(newRun("g", null), input, root)).toThrow(/\.kt test/);
   });
 });

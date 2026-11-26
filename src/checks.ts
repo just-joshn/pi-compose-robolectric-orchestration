@@ -4,10 +4,11 @@ import { join } from "node:path";
 
 import { isStringRecord } from "./guards.ts";
 import { countIgnores, lintTestSource, testFunctions } from "./lint.ts";
+import { categorize, isSource } from "./paths.ts";
 import { backtrack, finish, type Run, type TestRun } from "./state.ts";
 import { atomicWrite } from "./swap.ts";
 import { changedPaths, digest, type Fingerprint, fingerprint } from "./tree.ts";
-import { allowedChanges, categorize, isSource, workflows } from "./workflows.ts";
+import { allowedChanges, workflows } from "./workflows.ts";
 
 export const read = (cwd: string, file: string) =>
   existsSync(join(cwd, file)) ? readFileSync(join(cwd, file), "utf8") : "";
