@@ -6,7 +6,15 @@ import type { LintFinding } from "./lint.ts";
 import type { Fingerprint } from "./tree.ts";
 import { isWorkflowId, type Phase, type WorkflowId, workflows } from "./workflows.ts";
 
-const PURPOSES = ["verify", "reproduce", "mutation", "regression", "stress", "measure"] as const;
+const PURPOSES = [
+  "verify",
+  "reproduce",
+  "inventory",
+  "mutation",
+  "regression",
+  "stress",
+  "measure",
+] as const;
 export type Purpose = (typeof PURPOSES)[number];
 const OUTCOMES: readonly Outcome[] = ["passed", "failed", "build-error", "no-tests"];
 

@@ -13,7 +13,16 @@ import {
 import { type GradleDeps, type Target, testClasses } from "./gradle.ts";
 import { type LintFinding, lintTestSource } from "./lint.ts";
 import { categorize, inside, isSource } from "./paths.ts";
-import { execute, measure, reproduce, result, type StepResult, stress, verify } from "./runners.ts";
+import {
+  execute,
+  inventory,
+  measure,
+  reproduce,
+  result,
+  type StepResult,
+  stress,
+  verify,
+} from "./runners.ts";
 import {
   advance,
   backtrack,
@@ -133,6 +142,7 @@ type Runner = (run: Run, deps: Deps, phase: Phase) => Promise<StepResult>;
 const RUNNERS: Partial<Record<PhaseKind, Runner>> = {
   verify,
   reproduce,
+  inventory,
   stress,
   measure,
   regression: regressionCheck,

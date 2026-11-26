@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { TestCase } from "./gradle.ts";
 import { isStringRecord } from "./guards.ts";
 import { ignoredDeclarations, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isSource } from "./paths.ts";
@@ -115,12 +116,25 @@ export const lintErrors = (cwd: string, changed: readonly string[]) =>
     .flatMap((p) => lintTestSource(p, read(cwd, p)))
     .filter((f) => f.severity === "error");
 
-/** `test` is `Class.method`; nested classes report as `Class$Inner` and parameterized cases as `method[i]`. */
+/** Nested classes report as `Class$Inner`, so a case's id names its top-level class. */
+const caseId = (c: TestCase) => `${c.className.split("$")[0]}.${c.name}`;
+/** `test` is `Class.method`; a parameterized case is `method[i]`. */
+const ofTest = (id: string, test: string) => id === test || id.startsWith(`${test}[`);
+
 const passes = (r: TestRun, test: string) =>
-  r.cases.filter((c) => {
-    const id = `${c.className.split("$")[0]}.${c.name}`;
-    return c.status === "passed" && (id === test || id.startsWith(`${test}[`));
-  }).length;
+  r.cases.filter((c) => c.status === "passed" && ofTest(caseId(c), test)).length;
+
+/**
+ * Cases of the start's tests, each parameterized case on its own, that ran in the first run but
+ * do not pass in `last`. A class-level failure names no test, so a fix may remove it.
+ */
+function lostCases(run: Run, last: TestRun): string[] {
+  const ids = (cases: readonly TestCase[]) =>
+    cases.map(caseId).filter((id) => run.baselineTests.some((t) => ofTest(id, t)));
+  const first = run.runs.find((r) => r.cases.length > 0)?.cases ?? [];
+  const ran = ids(first.filter((c) => c.status !== "skipped"));
+  return surplus(ran, ids(last.cases.filter((c) => c.status === "passed")));
+}
 
 function problems(run: Run, cwd: string): string[] {
   if (!run.workflow) return ["No workflow ran."];
@@ -156,7 +170,8 @@ function problems(run: Run, cwd: string): string[] {
   if (workflow.preserveTests && lastPass) {
     const needed = (name: string) => run.baselineTests.filter((t) => t === name).length;
     const lost = [...new Set(run.baselineTests)].filter((t) => passes(lastPass, t) < needed(t));
-    if (lost.length) found.push(`Original tests missing or not passing: ${lost.join(", ")}.`);
+    const missing = [...new Set([...lost, ...lostCases(run, lastPass)])];
+    if (missing.length) found.push(`Original tests missing or not passing: ${missing.join(", ")}.`);
   }
   found.push(...weakenedTests(run, cwd, changed).map((p) => `Weakened tests: ${p}.`));
   const lint = lintErrors(cwd, changed);

@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { editProblem, finalize, saveSnapshot } from "../src/checks.ts";
 import { addFinding, mutate, start, type StartInput, step } from "../src/engine.ts";
-import { isRun, newRun, type TestRun } from "../src/state.ts";
+import { isRun, newRun, type Run, type TestRun } from "../src/state.ts";
 import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
 import { changedPaths, digest, fingerprint } from "../src/tree.ts";
 import {
@@ -30,6 +30,8 @@ const aCase = {
   status: "passed",
   seconds: 1,
 } as const;
+/** fix-flaky's fix phase, after its pre-edit run. */
+const inFixPhase = (run: Run): Run => ({ ...run, phaseIndex: 1 });
 const aRun: TestRun = {
   id: 1,
   phase: "verify",
@@ -226,7 +228,7 @@ describe("round 8 gaps", () => {
       root,
     ).run;
     write(root, TEST_FILE, nested(""));
-    expect(editProblem(run, root)).toMatch(/lost tests: same/);
+    expect(editProblem(inFixPhase(run), root)).toMatch(/lost tests: same/);
   });
 
   it("refuses a review finding outside the workspace", () => {
@@ -306,7 +308,7 @@ describe("round 12 gaps", () => {
       root,
     ).run;
     write(root, TEST_FILE, pair("@Ignore "));
-    expect(editProblem(run, root)).toMatch(/gained @Ignore on same/);
+    expect(editProblem(inFixPhase(run), root)).toMatch(/gained @Ignore on same/);
   });
 
   it("reads committed non-ASCII paths as git stores them", () => {

@@ -280,8 +280,11 @@ describe("flaky, refactor and performance workflows", () => {
     const { run, d } = begin(root, { workflow: "fix-flaky" }, (main) =>
       flaky ? "flaky" : behavior(main),
     );
-    const still = await step(run, d);
+    const fixing = (await step(run, d)).run;
+    expect(currentPhase(fixing)?.id).toBe("fix");
+    const still = await step(fixing, d);
     expect(currentPhase(still.run)?.id).toBe("fix");
+    expect(still.run.statusReason).toMatch(/stress runs did not pass/);
     flaky = false;
     const stable = await step(still.run, d);
     expect(currentPhase(stable.run)?.kind).toBe("mutation");

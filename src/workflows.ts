@@ -6,7 +6,15 @@ import type { Category } from "./paths.ts";
 
 /** The model completes "edit" and "findings" phases with compose_test_step and "mutation" with compose_test_mutate. The extension executes every other kind and decides its outcome. */
 export type PhaseKind =
-  "edit" | "findings" | "verify" | "reproduce" | "mutation" | "regression" | "stress" | "measure";
+  | "edit"
+  | "findings"
+  | "verify"
+  | "reproduce"
+  | "inventory"
+  | "mutation"
+  | "regression"
+  | "stress"
+  | "measure";
 
 export interface Phase {
   readonly id: string;
@@ -112,6 +120,11 @@ export const workflows = {
   "fix-flaky": {
     trigger: "Make a flaky Compose test deterministic.",
     phases: [
+      auto(
+        "baseline",
+        "inventory",
+        "Call compose_test_step. The extension runs the targets once to record their cases; they may pass or fail.",
+      ),
       edit(
         "fix",
         ANY,

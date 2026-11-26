@@ -39,7 +39,7 @@ export async function execute(
   const whole =
     run.workflow !== null &&
     workflows[run.workflow].preserveTests &&
-    ["verify", "stress", "measure"].includes(purpose);
+    ["verify", "inventory", "stress", "measure"].includes(purpose);
   const targets = whole ? run.targets.map(({ file }) => ({ file })) : run.targets;
   const execution = await runTargets(deps, targets);
   return addRun(run, { phase: currentPhase(run)?.id ?? "", purpose, tree, ...execution });
@@ -83,6 +83,15 @@ export async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
   const retry =
     "Did not reproduce. Check the target and method, then call compose_test_step again.";
   return result(next, describeRun(r), retry);
+}
+
+/** Before a fix, record which cases exist; a flaky test may pass or fail here. */
+export async function inventory(run: Run, deps: Deps): Promise<StepResult> {
+  const [next, r] = await execute(run, "inventory", deps);
+  if (r.outcome === "passed" || r.outcome === "failed")
+    return result(advance(next), describeRun(r));
+  const reason = `The targets did not run before any change (${r.outcome}), so their cases are unknown.`;
+  return result(finish(next, "blocked", reason), describeRun(r), reason);
 }
 
 export async function stress(run: Run, deps: Deps): Promise<StepResult> {

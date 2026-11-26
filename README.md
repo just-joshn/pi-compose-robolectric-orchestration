@@ -26,7 +26,7 @@ The model reads code and writes tests. The extension decides the outcome:
 - **Tests pass**: the extension runs Gradle with `--rerun` and reads the JUnit XML that run wrote. The agent never runs Gradle itself. Each run passes an init script, kept outside the workspace, that lets child projects of the target module match no tests and records the test task's time, class setup included, for `performance`. The time goes to a private file whose name a build script cannot predict. A run with no recorded time counts as unmeasured, never as 0s.
 - **Tests catch bugs**: the agent proposes a break in the production code. The extension applies it, requires a test failure, and restores the file. It never overwrites a change someone else made in the meantime.
 - **Fixes are real**: `fix-failing` runs the final tests against the original code and requires them to fail there.
-- **Tests are not weakened**: lost `@Test` functions, new `@Ignore`, and deleted test files are rejected.
+- **Tests are not weakened**: lost `@Test` functions, new `@Ignore`, and deleted test files are rejected. In `fix-failing`, `fix-flaky` and `performance`, every case of the first run, each parameterized case included, must pass in the last.
 - **Status**: built from recorded runs only. If files change after verification, the run reopens.
 
 The model can still stop early or write a narrow test. If it stops, the status is INCOMPLETE,
@@ -39,7 +39,7 @@ never VERIFIED.
 | `write-test`  | write tests, verify, negative control                            |
 | `setup`       | configure build + smoke test, verify, negative control           |
 | `fix-failing` | reproduce (must fail), fix, verify whole class, regression check |
-| `fix-flaky`   | fix, 5 consecutive passes, negative control                      |
+| `fix-flaky`   | record cases, fix, 5 consecutive passes, negative control        |
 | `refactor`    | passing baseline, simplify tests, verify, negative control       |
 | `performance` | measure, optimize, measure again (≥5% faster, all tests pass)    |
 | `migrate`     | move androidTest cases to src/test, verify, negative control     |
