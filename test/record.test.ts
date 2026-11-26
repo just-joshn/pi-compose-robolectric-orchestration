@@ -47,7 +47,9 @@ describe("the Test task record the init script keeps", () => {
     };
     expect((await runTargets(deps(root, exec), targets)).testSeconds).toBe(1.5);
   });
+});
 
+describe("a record that goes missing", () => {
   it.each(["before Gradle starts", "after Gradle records its task"] as const)(
     "survives another run in the process that finishes %s",
     async (when) => {
