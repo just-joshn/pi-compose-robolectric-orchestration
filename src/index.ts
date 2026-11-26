@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 
 import {
@@ -119,10 +120,30 @@ function registerToolGates(pi: ExtensionAPI, session: Session) {
   pi.on("tool_result", async (event, ctx) => {
     const run = session.run;
     if (run?.status !== "active" || !isReadToolResult(event) || event.isError) return;
-    if (event.details?.truncation?.truncated) return;
-    if (event.input["offset"] !== undefined || event.input["limit"] !== undefined) return;
-    const path = relative(ctx.cwd, toolPath(ctx.cwd, pathOf(event.input)));
-    if (!run.reads.includes(path)) session.set({ ...run, reads: [...run.reads, path] });
+    const absolute = toolPath(ctx.cwd, pathOf(event.input));
+    const path = relative(ctx.cwd, absolute);
+    if (!run.targets.some((target) => target.file === path) || run.reads.includes(path)) return;
+    const input = event.input;
+    const offset = typeof input["offset"] === "number" ? input["offset"] : 1;
+    const start = Math.trunc(Math.max(0, offset - 1));
+    const from = start + 1;
+    const limit = typeof input["limit"] === "number" ? input["limit"] : undefined;
+    const lines = readFileSync(absolute, "utf8").replace(/\n$/, "").split("\n");
+    const total = lines.length;
+    const count = event.details?.truncation?.truncated
+      ? event.details.truncation.outputLines
+      : lines.slice(start, limit === undefined ? undefined : start + limit).length;
+    const ranges = [...(run.readRanges ?? []), { path, from, to: from + count - 1 }];
+    let covered = 0;
+    for (const range of ranges.filter((r) => r.path === path).toSorted((a, b) => a.from - b.from)) {
+      if (range.from > covered + 1) break;
+      covered = Math.max(covered, range.to);
+    }
+    session.set({
+      ...run,
+      readRanges: ranges,
+      reads: covered >= total ? [...run.reads, path] : run.reads,
+    });
   });
 }
 

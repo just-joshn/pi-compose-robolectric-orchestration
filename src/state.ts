@@ -67,6 +67,11 @@ export interface Run {
   readonly mutations: readonly Mutation[];
   readonly findings: readonly Finding[];
   readonly reads: readonly string[];
+  readonly readRanges?: readonly {
+    readonly path: string;
+    readonly from: number;
+    readonly to: number;
+  }[];
   readonly nudges: number;
   readonly backtracks: number;
   readonly reported: number;
@@ -117,7 +122,7 @@ export const finish = (run: Run, status: "verified" | "blocked" | "incomplete", 
   revise(run, { status, statusReason: reason });
 
 export const advance = (run: Run) =>
-  revise(run, { phaseIndex: run.phaseIndex + 1, reads: [], statusReason: "" });
+  revise(run, { phaseIndex: run.phaseIndex + 1, reads: [], readRanges: [], statusReason: "" });
 
 export const addRun = (run: Run, testRun: Omit<TestRun, "id">): [Run, TestRun] => {
   const recorded = { ...testRun, id: run.runs.length + 1 };
@@ -188,6 +193,12 @@ export function isRun(v: unknown): v is Run {
     hasStrings(v, ["id", "goal", "statusReason"]) &&
     ["nudges", "backtracks", "reported", "revision"].every((k) => isNumber(v[k])) &&
     ["subject", "baselineTests", "reads"].every((k) => isArrayOf(v[k], isString)) &&
+    (v["readRanges"] === undefined ||
+      isArrayOf(
+        v["readRanges"],
+        (r): r is { path: string; from: number; to: number } =>
+          isRecord(r) && isString(r["path"]) && isNumber(r["from"]) && isNumber(r["to"]),
+      )) &&
     isArrayOf(v["runs"], isTestRun) &&
     isArrayOf(v["mutations"], isMutation) &&
     isArrayOf(v["findings"], isFinding) &&
@@ -268,6 +279,7 @@ export function backtrack(run: Run, reason: string): Run {
     phaseIndex: edit,
     backtracks: run.backtracks + 1,
     reads: [],
+    readRanges: [],
     statusReason: reason,
   });
 }

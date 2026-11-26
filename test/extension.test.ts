@@ -320,6 +320,69 @@ describe("edits through a symlink", () => {
 });
 
 describe("the review read gate", () => {
+  it("allows reviewing a large target by reading every line in chunks", async () => {
+    const root = workspace();
+    write(root, TEST_FILE, "// line\n".repeat(2100));
+    const h = harness(root);
+    await h.run("review inspect");
+    await h.call("compose_test_start", { workflow: "review", targets: [{ file: TEST_FILE }] });
+    const first = { path: TEST_FILE, offset: 1, limit: 1500 };
+    const second = { path: TEST_FILE, offset: 1501, limit: 600 };
+    const reader = createReadTool(root);
+    await h.emit("tool_result", {
+      toolName: "read",
+      input: first,
+      isError: false,
+      ...(await reader.execute("id", first)),
+    });
+    await h.emit("tool_result", {
+      toolName: "read",
+      input: second,
+      isError: false,
+      ...(await reader.execute("id", second)),
+    });
+    await expect(h.call("compose_test_step")).resolves.toBeDefined();
+  });
+
+  it("accepts a large file after every line has been read in chunks", async () => {
+    const root = workspace();
+    write(root, TEST_FILE, "// line\n".repeat(2100));
+    const h = harness(root);
+    await h.run("review inspect");
+    await h.call("compose_test_start", { workflow: "review", targets: [{ file: TEST_FILE }] });
+    const reader = createReadTool(root);
+    const read = async (input: { path: string; offset?: number }) => {
+      const result = await reader.execute("id", input);
+      await h.emit("tool_result", { toolName: "read", input, isError: false, ...result });
+    };
+    await read({ path: TEST_FILE });
+    await read({ path: TEST_FILE, offset: 2001 });
+    expect((await h.call("compose_test_step")).details["status"]).toBe("verified");
+  });
+
+  it("requires gaps between read chunks to be covered", async () => {
+    const root = workspace();
+    write(root, TEST_FILE, "// line\n".repeat(10));
+    const h = harness(root);
+    await h.run("review inspect");
+    await h.call("compose_test_start", { workflow: "review", targets: [{ file: TEST_FILE }] });
+    const reader = createReadTool(root);
+    const read = async (offset: number, limit: number) => {
+      const input = { path: TEST_FILE, offset, limit };
+      await h.emit("tool_result", {
+        toolName: "read",
+        input,
+        isError: false,
+        ...(await reader.execute("id", input)),
+      });
+    };
+    await read(6, 5);
+    await read(1, 4);
+    await expect(h.call("compose_test_step")).rejects.toThrow(/Read every target/);
+    await read(4, 2);
+    expect((await h.call("compose_test_step")).details["status"]).toBe("verified");
+  });
+
   it("does not accept a truncated read as a whole-file review", async () => {
     const root = workspace();
     write(root, TEST_FILE, "// line\n".repeat(2100));
