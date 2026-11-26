@@ -46,7 +46,8 @@ official compatibility matrix.
   [gradle docs; judgment per project]
 
 The performance workflow measures median test time before and after in code, requires every
-baseline test to still pass, and needs at least a 5% speedup.
+baseline test to still pass, and needs a change, at least a 5% median speedup, and every run after
+the change faster than every baseline run.
 
 ## Sources (fetched 2026-11-25)
 
