@@ -96,7 +96,6 @@ export function committed(cwd: string, head: string, path: string): Buffer | nul
   return shown.status === 0 ? shown.stdout : null;
 }
 
-/** A path's content hash in a fingerprint: its own entry, or the file as committed at its HEAD. */
 function contentAt(cwd: string, fp: Fingerprint, path: string): string {
   const own = fp.files[path];
   if (own !== undefined || !fp.head) return own ?? "deleted";
