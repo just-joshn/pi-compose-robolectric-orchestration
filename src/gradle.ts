@@ -4,6 +4,7 @@ import { basename, dirname, join, relative } from "node:path";
 
 import { ANNOTATION, annotation, blockEnd, stripCode, testFunctions } from "./lint.ts";
 import { inside } from "./paths.ts";
+import { initScript, takeOwnTask } from "./record.ts";
 import { atomicWrite } from "./swap.ts";
 
 export interface Target {
@@ -171,10 +172,7 @@ export const parseJUnitXml = (xml: string): TestCase[] =>
       .matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g),
   ].map(([, tag = "", body = ""]) => parseCase(tag, body));
 
-const resultsDir = (module: string, task: string) => join(module, "build", "test-results", task);
-
-function reports(target: Resolved, task: string): string[] {
-  const dir = resultsDir(target.module, task);
+function reports(target: Resolved, dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter(
@@ -185,8 +183,8 @@ function reports(target: Resolved, task: string): string[] {
 
 export const ofTest = (name: string, test: string) => name === test || name.startsWith(`${test}[`);
 
-const casesFor = (target: Resolved, task: string) =>
-  reports(target, task).flatMap((file) =>
+const casesFor = (target: Resolved, dir: string) =>
+  reports(target, dir).flatMap((file) =>
     parseJUnitXml(readFileSync(file, "utf8")).filter(
       (c) => !target.method || ofTest(c.name, target.method),
     ),
@@ -202,40 +200,17 @@ function outcomeOf(exitCode: number, perTarget: readonly (readonly TestCase[])[]
 
 interface Invocation {
   readonly root: string;
+  readonly module: string;
   readonly gradle: string;
   readonly args: readonly string[];
   readonly targets: readonly Resolved[];
 }
 
 /**
- * Random per process: a build script cannot predict the timing file, and the init script's content,
+ * Random per process: a build script cannot predict the record file, and the init script's content,
  * which keys Gradle's configuration cache, stays the same from run to run.
  */
-const PRIVATE = { script: `${randomUUID()}.init.gradle`, timing: `${randomUUID()}.time` };
-
-const groovyString = (text: string) => `'${text.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
-
-/**
- * `-p <module>` also runs the task in child projects, whose tests never match the filters. Only
- * the module's own task records its root suite's time, which spans every test class, class-level
- * setup included.
- */
-const initScript = (task: string, timing: string) => `allprojects {
-  tasks.withType(Test).configureEach { task ->
-    filter.failOnNoMatchingTests = false
-    def own = task.name == ${groovyString(task)} && task.project.projectDir == gradle.startParameter.currentDir
-    afterSuite { suite, result ->
-      if (own && suite.parent == null) new File(${groovyString(timing)}).text = String.valueOf(result.endTime - result.startTime)
-    }
-  }
-}
-`;
-
-function takeTestSeconds(timing: string): number | null {
-  const text = existsSync(timing) ? readFileSync(timing, "utf8") : "";
-  rmSync(timing, { force: true });
-  return /^\d+$/.test(text) ? Number(text) / 1000 : null;
-}
+const PRIVATE = { script: `${randomUUID()}.init.gradle`, record: `${randomUUID()}.record` };
 
 const total = (parts: readonly (number | null)[]) =>
   parts.reduce<number | null>(
@@ -263,6 +238,7 @@ function invocation(
   );
   return {
     root,
+    module,
     gradle: existsSync(wrapper) ? wrapper : gradle,
     args: ["--console=plain", "-p", moduleDir, task, "--rerun", ...tests, "--init-script", script],
     targets: group,
@@ -276,7 +252,7 @@ type Ran = Awaited<ReturnType<Exec>> & {
 
 interface RunOptions {
   readonly task: string;
-  readonly timing: string;
+  readonly record: string;
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
 }
@@ -284,12 +260,12 @@ interface RunOptions {
 /**
  * Gradle invocations share the project's build lock, so they run one after another. `-p <module>`
  * also reruns, and so clears, child projects' tests, so each invocation's results are read before
- * the next one runs.
+ * the next one runs. Only the module's own task counts.
  */
 async function inOrder(
   exec: Exec,
   invocations: readonly Invocation[],
-  { task, timing, ...options }: RunOptions,
+  { task, record, ...options }: RunOptions,
 ): Promise<Ran[]> {
   if (options.signal?.aborted)
     throw new Error("Gradle run cancelled; it is not recorded as evidence.", {
@@ -297,12 +273,12 @@ async function inOrder(
     });
   const [first, ...rest] = invocations;
   if (!first) return [];
-  for (const file of first.targets.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
-  rmSync(timing, { force: true });
+  rmSync(record, { force: true });
   const result = await exec(first.gradle, first.args, { ...options, cwd: first.root });
-  const perTarget = first.targets.map((t) => casesFor(t, task));
-  const ran = { ...result, testSeconds: takeTestSeconds(timing), perTarget };
-  return [ran, ...(await inOrder(exec, rest, { task, timing, ...options }))];
+  const own = takeOwnTask(record, task, first.module);
+  const perTarget = first.targets.map((t) => (own ? casesFor(t, own.xml) : []));
+  const ran = { ...result, testSeconds: own ? own.ms / 1000 : null, perTarget };
+  return [ran, ...(await inOrder(exec, rest, { task, record, ...options }))];
 }
 
 /**
@@ -315,8 +291,8 @@ export async function runTargets(
 ): Promise<Execution> {
   const config = gradleConfig();
   const resolved = targets.flatMap((t) => resolve(cwd, t));
-  const [script, timing] = [join(dir, PRIVATE.script), join(dir, PRIVATE.timing)];
-  atomicWrite(script, initScript(config.task, timing));
+  const [script, record] = [join(dir, PRIVATE.script), join(dir, PRIVATE.record)];
+  atomicWrite(script, initScript(record));
   const started = Date.now();
   const keys = [...new Set(resolved.map((t) => `${t.root}\0${t.module}`))];
   const invocations = keys.map((key) =>
@@ -328,7 +304,7 @@ export async function runTargets(
   );
   const results = await inOrder(exec, invocations, {
     task: config.task,
-    timing,
+    record,
     timeoutMs: config.timeoutMs,
     ...(signal ? { signal } : {}),
   }).finally(() => rmSync(script, { force: true }));

@@ -1,5 +1,3 @@
-import { writeFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import { finalize } from "../src/checks.ts";
@@ -15,9 +13,9 @@ import {
   deps,
   MAIN_FILE,
   read,
+  recordTask,
   RESULT_XML,
   TEST_FILE,
-  timingFile,
   workspace,
   write,
 } from "./helpers.ts";
@@ -53,7 +51,7 @@ function gradle(root: string): Exec {
       return `<testcase name="greets[${i}]" classname="a.FooTest">${failure}</testcase>`;
     });
     write(root, RESULT_XML, `<testsuite>${cases.join("")}</testsuite>`);
-    writeFileSync(timingFile(args) ?? "", String(params.length * 500));
+    recordTask(root, args, { ms: params.length * 500 });
     const ok = params.every((p) => !fails(p));
     return { code: ok ? 0 : 1, stdout: "", stderr: "" };
   };

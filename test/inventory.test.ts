@@ -5,7 +5,7 @@ import { start } from "../src/engine.ts";
 import { type Exec, runTargets, testClasses } from "../src/gradle.ts";
 import { newRun, type TestRun } from "../src/state.ts";
 import { digest, fingerprint } from "../src/tree.ts";
-import { deps, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
+import { deps, recordTask, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
 
 const tests = (source: string) =>
   testClasses(source, "FooTest.kt").map((c) => `${c.name}: ${c.tests.join(", ")}`);
@@ -76,8 +76,9 @@ class FooTest : GreetingContract() {
     const cases = ["isNotBlank", "greets"].map(
       (n) => `<testcase name="${n}" classname="a.FooTest"/>`,
     );
-    const exec: Exec = async () => {
+    const exec: Exec = async (_c, args) => {
       write(root, RESULT_XML, `<testsuite>${cases.join("")}</testsuite>`);
+      recordTask(root, args);
       return { code: 0, stdout: "", stderr: "" };
     };
     expect((await runTargets(deps(root, exec), [{ file: TEST_FILE }])).outcome).toBe("passed");

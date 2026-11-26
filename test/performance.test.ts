@@ -1,11 +1,9 @@
-import { writeFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import { type Deps, start, step } from "../src/engine.ts";
 import type { Exec } from "../src/gradle.ts";
 import { isRun, newRun } from "../src/state.ts";
-import { deps, RESULT_XML, TEST_FILE, timingFile, workspace, write } from "./helpers.ts";
+import { deps, recordTask, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
 
 const input = { workflow: "performance", targets: [{ file: TEST_FILE }] } as const;
 const baseline = (root: string, d: Deps) =>
@@ -18,8 +16,7 @@ type Build = "honest" | "forges" | "deletes";
 function gradle(root: string, build: () => Build): Exec {
   return async (_command, args) => {
     write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest" time="1"/>');
-    const timing = timingFile(args);
-    if (timing && build() !== "deletes") writeFileSync(timing, "1500");
+    if (build() !== "deletes") recordTask(root, args, { ms: 1500 });
     if (build() === "forges")
       write(root, "app/build/test-results/testDebugUnitTest/compose-test-time.txt", "1");
     return { code: 0, stdout: "", stderr: "" };
@@ -34,7 +31,7 @@ describe("measuring test time", () => {
     const exec: Exec = async (_command, args) => {
       const testCase = `<testcase name="showsGreeting" classname="a.FooTest" time="${caseSeconds}"/>`;
       write(root, RESULT_XML, `<testsuite time="${caseSeconds}">${testCase}</testsuite>`);
-      writeFileSync(timingFile(args) ?? "", "1500");
+      recordTask(root, args, { ms: 1500 });
       return { code: 0, stdout: "", stderr: "" };
     };
     const d = deps(root, exec);
@@ -61,7 +58,7 @@ describe("a build script that tampers with the test time", () => {
     expect(after.run.status).toBe("active");
   });
 
-  it("leaves the run unmeasured, not 0s, when it deletes the time", async () => {
+  it("counts a run whose record it deletes as unmeasured and not passing, never 0s", async () => {
     const root = workspace();
     let build: Build = "honest";
     const d = deps(
@@ -72,7 +69,7 @@ describe("a build script that tampers with the test time", () => {
     build = "deletes";
     const after = await step(measured.run, d);
     expect(after.run.status).toBe("active");
-    expect(after.run.statusReason).toMatch(/no test time/);
+    expect(after.run.statusReason).toMatch(/must pass/);
     expect(after.message).not.toContain("Median");
     expect(isRun(JSON.parse(JSON.stringify(after.run)))).toBe(true);
     const other = workspace();
@@ -84,6 +81,6 @@ describe("a build script that tampers with the test time", () => {
       ),
     );
     expect(unmeasured.run.status).toBe("blocked");
-    expect(unmeasured.run.statusReason).toMatch(/no test time/);
+    expect(unmeasured.run.statusReason).toMatch(/must pass/);
   });
 });

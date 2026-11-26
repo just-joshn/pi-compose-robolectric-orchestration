@@ -3,7 +3,17 @@ import { describe, expect, it } from "vitest";
 import { type Deps, start, step } from "../src/engine.ts";
 import { type Exec, runTargets } from "../src/gradle.ts";
 import { currentPhase, newRun, type Run } from "../src/state.ts";
-import { commit, deps, glob, MAIN_FILE, read, TEST_FILE, workspace, write } from "./helpers.ts";
+import {
+  commit,
+  deps,
+  glob,
+  MAIN_FILE,
+  read,
+  recordTask,
+  TEST_FILE,
+  workspace,
+  write,
+} from "./helpers.ts";
 
 type Cases = Readonly<Record<string, readonly (readonly [name: string, ok: boolean])[]>>;
 
@@ -29,6 +39,7 @@ function gradle(root: string, cases: () => Cases): Exec {
       );
       write(root, `app/build/test-results/testDebugUnitTest/TEST-${cls}.xml`, xml.join(""));
     }
+    recordTask(root, args);
     const failed = ran.some(([, selected]) => selected.some(([, ok]) => !ok));
     return { code: failed ? 1 : 0, stdout: "", stderr: "" };
   };

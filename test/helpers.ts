@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -10,10 +10,26 @@ import { newRun } from "../src/state.ts";
 export const TEST_FILE = "app/src/test/java/a/FooTest.kt";
 export const MAIN_FILE = "app/src/main/java/a/Foo.kt";
 export const RESULT_XML = "app/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml";
-/** The file the init script's test listener writes the test task time to, in milliseconds. */
-export function timingFile(args: readonly string[]): string | undefined {
+/** The file the init script's test listener records each Test task that ran to. */
+export function recordFile(args: readonly string[]): string {
   const script = readFileSync(args[args.indexOf("--init-script") + 1] ?? "", "utf8");
-  return /new File\('([^']+)'\)/.exec(script)?.[1];
+  return /new File\('([^']+)'\)/.exec(script)?.[1] ?? "";
+}
+
+interface TaskRun {
+  readonly module?: string;
+  readonly task?: string;
+  readonly xml?: string;
+  readonly ms?: number;
+}
+
+/** Like the init script: records that a Test task ran, by default the -p module's, in the default layout. */
+export function recordTask(root: string, args: readonly string[], run: TaskRun = {}) {
+  const module = run.module ?? args[args.indexOf("-p") + 1] ?? ".";
+  const task = run.task ?? args[args.indexOf("-p") + 2] ?? "";
+  const xml = run.xml ?? join(root, module, "build", "test-results", task);
+  const entry = { task, project: join(root, module), xml, ms: run.ms ?? 500 };
+  appendFileSync(recordFile(args), `${JSON.stringify(entry)}\n`);
 }
 
 export const passingTest = `package a
@@ -94,8 +110,7 @@ export function fakeGradle(
     );
     const ok = verdict === "pass" || (verdict === "flaky" && calls.length % 2 === 0);
     write(root, RESULT_XML, xml(names.map((name) => [name, ok])));
-    const timing = timingFile(args);
-    if (timing) writeFileSync(timing, String(names.length * 500));
+    recordTask(root, args, { ms: names.length * 500 });
     return { code: ok ? 0 : 1, stdout: ok ? "BUILD SUCCESSFUL" : "FAILED", stderr: "" };
   };
   return { exec, calls };

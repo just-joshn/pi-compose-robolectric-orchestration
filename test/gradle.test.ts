@@ -11,6 +11,7 @@ import {
   fakeGradle,
   glob,
   passingTest,
+  recordTask,
   RESULT_XML,
   TEST_FILE,
   workspace,
@@ -85,12 +86,13 @@ describe("running Gradle per module", () => {
     expect(gradle.calls[1]?.slice(1, 4)).toEqual(["-p", "lib", "testDebugUnitTest"]);
     expect(result.outcome).toBe("no-tests");
     const nested = await runTargets(
-      deps(root, async () => {
+      deps(root, async (_c, args) => {
         write(
           root,
           "app/build/test-results/testDebugUnitTest/TEST-a.FooTest$Inner.xml",
           '<testcase name="t" classname="a.FooTest$Inner"><failure message="x"/></testcase>',
         );
+        recordTask(root, args);
         return { code: 1, stdout: "", stderr: "" };
       }),
       [fooTarget],
@@ -142,12 +144,13 @@ describe("classifying Gradle outcomes", () => {
 describe("trusting Gradle results", () => {
   it("does not treat a target whose cases were all skipped as passing", async () => {
     const root = workspace();
-    const exec: Exec = async () => {
+    const exec: Exec = async (_c, args) => {
       write(
         root,
         RESULT_XML,
         '<testsuite><testcase name="showsGreeting" classname="a.FooTest"><skipped/></testcase></testsuite>',
       );
+      recordTask(root, args);
       return { code: 0, stdout: "", stderr: "" };
     };
     expect((await runTargets(deps(root, exec), [fooTarget])).outcome).toBe("no-tests");
@@ -226,6 +229,7 @@ describe("the same test class in two modules", () => {
         `${module}/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml`,
         '<testcase name="showsGreeting" classname="a.FooTest"/>',
       );
+      recordTask(root, args);
       return { code: 0, stdout: "", stderr: "" };
     };
     const result = await runTargets(
@@ -288,6 +292,7 @@ describe("tests in nested classes", () => {
           `app/build/test-results/testDebugUnitTest/TEST-${inner}.xml`,
           `<testcase name="shouts" classname="${inner}"><failure message="x"/></testcase>`,
         );
+      recordTask(root, args);
       return { code: failed ? 1 : 0, stdout: "", stderr: "" };
     };
 
@@ -312,6 +317,7 @@ describe("a module with a child project", () => {
     /** Like Gradle: -p app also runs :app:sub's test task, which fails on a filter it cannot match. */
     const exec: Exec = async (_c, args) => {
       write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest"/>');
+      recordTask(root, args);
       const script = args[args.indexOf("--init-script") + 1] ?? "";
       const allowed =
         existsSync(script) && /failOnNoMatchingTests = false/.test(readFileSync(script, "utf8"));
@@ -349,6 +355,7 @@ describe("a child project's results", () => {
           '<testcase name="works" classname="b.SubTest"/>',
         );
       else write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest"/>');
+      recordTask(root, args);
       return { code: 0, stdout: "", stderr: "" };
     };
     const targets = order === "first" ? [{ file: sub }, fooTarget] : [fooTarget, { file: sub }];
