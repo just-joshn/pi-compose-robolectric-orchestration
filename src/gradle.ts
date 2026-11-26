@@ -99,12 +99,33 @@ export function testClasses(source: string, file: string): TestClass[] {
   const ignore = annotation(code, "Ignore");
   const skipped = inIgnoredClass(code, declarations, ignore);
   const tests = testFunctions(source).filter((t) => !ignore.test(t.header) && !skipped(t.at));
-  const classes = tops.flatMap((m, i) => {
-    if (/\b(abstract|sealed)\s/.test(m[2] ?? "")) return [];
+  const declarationsWithTests = tops.map((m, i) => {
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
-    const name = qualify(m[3] ?? "");
-    return [{ name, tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name) }];
+    const header = code.slice(m.index + m[0].length, to).split("{")[0] ?? "";
+    return {
+      name: m[3] ?? "",
+      abstract: /\b(abstract|sealed)\s/.test(m[2] ?? ""),
+      header,
+      tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name),
+    };
   });
+  const classes = declarationsWithTests
+    .filter((c) => !c.abstract)
+    .map((c) => ({
+      name: qualify(c.name),
+      tests: [
+        ...c.tests,
+        ...declarationsWithTests
+          .filter(
+            (base) =>
+              base.abstract &&
+              new RegExp(`\\b${base.name}\\s*(?:\\(|[,<{]|$)`).test(
+                c.header.split(":").slice(1).join(":"),
+              ),
+          )
+          .flatMap((base) => base.tests),
+      ],
+    }));
   const withTests = classes.filter((c) => c.tests.length > 0);
   if (withTests.length) return withTests;
   return [

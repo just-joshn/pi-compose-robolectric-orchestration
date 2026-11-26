@@ -58,6 +58,40 @@ class FooTest {
   });
 });
 
+it("runs every concrete subclass with inherited tests", async () => {
+  const root = workspace({
+    test: `package a
+import org.junit.Test
+abstract class Base {
+  @Test fun inherited() {}
+}
+class FirstTest : Base()
+class SecondTest : Base()
+`,
+  });
+  const exec: Exec = async (_command, args) => {
+    const filters = new Set(args.filter((_, i) => args[i - 1] === "--tests"));
+    if (filters.has("a.FirstTest")) {
+      write(
+        root,
+        "app/build/test-results/testDebugUnitTest/TEST-a.FirstTest.xml",
+        '<testcase name="inherited" classname="a.FirstTest"><failure/></testcase>',
+      );
+    }
+    if (filters.has("a.SecondTest")) {
+      write(
+        root,
+        "app/build/test-results/testDebugUnitTest/TEST-a.SecondTest.xml",
+        '<testcase name="inherited" classname="a.SecondTest"/>',
+      );
+    }
+    recordTask(root, args);
+    return { code: filters.has("a.FirstTest") ? 1 : 0, stdout: "", stderr: "" };
+  };
+  const result = await runTargets(deps(root, exec), [{ file: TEST_FILE }]);
+  expect(result.outcome).toBe("failed");
+});
+
 describe("an abstract base class in the target file", () => {
   const source = `package a
 abstract class GreetingContract {
@@ -72,7 +106,7 @@ class FooTest : GreetingContract() {
 `;
 
   it("is not run as a class of its own, since its tests run under subclasses", async () => {
-    expect(tests(source)).toEqual(["a.FooTest: greets"]);
+    expect(tests(source)).toEqual(["a.FooTest: greets, isNotBlank"]);
     const root = workspace({ test: source });
     const cases = ["isNotBlank", "greets"].map(
       (n) => `<testcase name="${n}" classname="a.FooTest"/>`,
