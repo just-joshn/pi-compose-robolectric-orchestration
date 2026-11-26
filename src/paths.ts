@@ -8,9 +8,11 @@ export function categorize(path: string): Category {
   const build =
     /(^|\/)(buildSrc|build-logic)\/|\.gradle(\.kts)?$|(^|\/)(gradle\.properties|[\w-]+\.versions\.toml|gradle-wrapper\.properties)$/;
   if (build.test(p)) return "build";
-  if (/(^|\/)src\/(test|androidTest|sharedTest)[A-Za-z]*\/|(^|\/)robolectric\.properties$/.test(p))
+  if (
+    /(^|\/)src\/(test|androidTest|sharedTest)[A-Za-z0-9]*\/|(^|\/)robolectric\.properties$/.test(p)
+  )
     return "test";
-  if (/(^|\/)src\/[A-Za-z]+\//.test(p)) return "production";
+  if (/(^|\/)src\/[A-Za-z][A-Za-z0-9]*\//.test(p)) return "production";
   return "other";
 }
 

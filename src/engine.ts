@@ -71,7 +71,7 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
   for (const file of paths.filter(Boolean))
     if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
   for (const { file } of input.targets) {
-    if (runsTests && !/(^|\/)src\/test[A-Za-z]*\/.*\.kt$/.test(file))
+    if (runsTests && !/(^|\/)src\/test[A-Za-z0-9]*\/.*\.kt$/.test(file))
       reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
     if (!workflow.createsTargets && !existsSync(join(cwd, file)))
       reject(`Target ${file} does not exist.`);
