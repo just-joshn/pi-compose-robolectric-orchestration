@@ -184,10 +184,11 @@ function invocation(group: readonly Resolved[], gradle: string, task: string): I
   for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
   // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
-  const tests = group.flatMap((t) => [
-    "--tests",
-    t.method ? `${t.className}.${t.method}` : t.className,
-  ]);
+  // A class filter does not match the class's nested classes, which Gradle names Outer$Inner.
+  const tests = group.flatMap((t) => {
+    const method = t.method ? `.${t.method}` : "";
+    return ["--tests", `${t.className}${method}`, "--tests", `${t.className}$*${method}`];
+  });
   return {
     root,
     gradle: existsSync(wrapper) ? wrapper : gradle,

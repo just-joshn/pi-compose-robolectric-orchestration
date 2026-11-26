@@ -62,6 +62,8 @@ describe("running Gradle per module", () => {
       "--rerun",
       "--tests",
       "a.FooTest.showsGreeting",
+      "--tests",
+      "a.FooTest$*.showsGreeting",
     ]);
     expect(gradle.calls[1]?.slice(1, 4)).toEqual(["-p", "lib", "testDebugUnitTest"]);
     expect(result.outcome).toBe("no-tests");
@@ -182,7 +184,10 @@ describe("a file with several top-level test classes", () => {
     await runTargets(exec, root, [fooTarget]);
     await runTargets(exec, root, [{ file: TEST_FILE, method: "broken" }]);
     const filters = calls.map((args) => args.filter((_, i) => args[i - 1] === "--tests"));
-    expect(filters).toEqual([["a.First", "a.Second"], ["a.Second.broken"]]);
+    expect(filters).toEqual([
+      ["a.First", "a.First$*", "a.Second", "a.Second$*"],
+      ["a.Second.broken", "a.Second$*.broken"],
+    ]);
   });
 });
 
@@ -241,5 +246,40 @@ describe("a module whose Gradle path differs from its directory", () => {
     };
     await runTargets(exec, root, [{ file }]);
     expect(calls[0]?.slice(1, 4)).toEqual(["-p", "android/app", "testDebugUnitTest"]);
+  });
+});
+
+const glob = (filter: string) =>
+  new RegExp(`^${filter.replaceAll(/[.$]/g, "\\$&").replaceAll("*", ".*")}$`);
+
+describe("tests in nested classes", () => {
+  const inner = "a.FooTest$WhenShouting";
+  const source = `package a\nclass FooTest {\n  @Test fun greets() { assert(true) }\n  class WhenShouting {\n    @Test fun shouts() { assert(false) }\n  }\n}\n`;
+  /** Like Gradle: a class filter does not match a nested class; a filter must name it. */
+  const exec =
+    (root: string): Exec =>
+    async (_c, args) => {
+      const filters = args.filter((_, i) => args[i - 1] === "--tests").map(glob);
+      const runs = (name: string) => filters.some((f) => f.test(name));
+      if (runs("a.FooTest") || runs("a.FooTest.greets"))
+        write(root, RESULT_XML, '<testcase name="greets" classname="a.FooTest"/>');
+      const failed = runs(inner) || runs(`${inner}.shouts`);
+      if (failed)
+        write(
+          root,
+          `app/build/test-results/testDebugUnitTest/TEST-${inner}.xml`,
+          `<testcase name="shouts" classname="${inner}"><failure message="x"/></testcase>`,
+        );
+      return { code: failed ? 1 : 0, stdout: "", stderr: "" };
+    };
+
+  it("runs them, so their failures count", async () => {
+    const root = workspace({ test: source });
+    const whole = await runTargets(exec(root), root, [fooTarget]);
+    expect(whole.outcome).toBe("failed");
+    const method = await runTargets(exec(root), root, [{ file: TEST_FILE, method: "shouts" }]);
+    expect(method.cases.map((c) => `${c.className}.${c.name}:${c.status}`)).toEqual([
+      `${inner}.shouts:failed`,
+    ]);
   });
 });
