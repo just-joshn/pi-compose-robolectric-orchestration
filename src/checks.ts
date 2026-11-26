@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { TestCase } from "./gradle.ts";
+import { ofTest, type TestCase } from "./gradle.ts";
 import { isStringRecord } from "./guards.ts";
 import { ignoredDeclarations, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isSource } from "./paths.ts";
@@ -117,7 +117,6 @@ export const lintErrors = (cwd: string, changed: readonly string[]) =>
     .filter((f) => f.severity === "error");
 
 const caseId = (c: TestCase) => `${c.className.split("$")[0]}.${c.name}`;
-const ofTest = (id: string, test: string) => id === test || id.startsWith(`${test}[`);
 
 const passes = (r: TestRun, test: string) =>
   r.cases.filter((c) => c.status === "passed" && ofTest(caseId(c), test)).length;

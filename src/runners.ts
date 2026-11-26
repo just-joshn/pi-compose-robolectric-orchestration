@@ -1,4 +1,12 @@
-import { type GradleDeps, runTargets } from "./gradle.ts";
+import { read } from "./checks.ts";
+import {
+  type GradleDeps,
+  ofTest,
+  runTargets,
+  type Target,
+  type TestCase,
+  testClasses,
+} from "./gradle.ts";
 import {
   addRun,
   advance,
@@ -29,7 +37,7 @@ const STRESS_RUNS = 5;
 const MEASURE_RUNS = 3;
 const MIN_SPEEDUP = 0.05;
 
-/** Test-preserving workflows verify whole classes, so sibling tests cannot break or disappear unseen. */
+/** Test-preserving workflows run whole classes, so sibling tests cannot break or disappear unseen. */
 export async function execute(
   run: Run,
   purpose: Purpose,
@@ -39,7 +47,7 @@ export async function execute(
   const whole =
     run.workflow !== null &&
     workflows[run.workflow].preserveTests &&
-    ["verify", "inventory", "stress", "measure"].includes(purpose);
+    ["verify", "reproduce", "inventory", "stress", "measure"].includes(purpose);
   const targets = whole ? run.targets.map(({ file }) => ({ file })) : run.targets;
   const execution = await runTargets(deps, targets);
   return addRun(run, { phase: currentPhase(run)?.id ?? "", purpose, tree, ...execution });
@@ -81,9 +89,22 @@ export async function verify(run: Run, deps: Deps): Promise<StepResult> {
   return result(backtrack(next, reason), describeRun(r), reason);
 }
 
+/** A class-level failure such as classMethod names no test, yet it stops the method too. */
+function ownFailure(cwd: string, { file, method }: Target, failed: readonly TestCase[]) {
+  const classes = testClasses(read(cwd, file), file).filter(
+    (k) => !method || k.tests.includes(method),
+  );
+  return failed.some((c) => {
+    const owner = classes.find((k) => k.name === c.className.split("$")[0]);
+    const test = owner?.tests.find((t) => ofTest(c.name, t));
+    return owner !== undefined && (!method || test === undefined || test === method);
+  });
+}
+
 export async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
   const [next, r] = await evidence(run, "reproduce", deps);
-  if (r.outcome === "failed" || r.outcome === "build-error")
+  const failed = r.cases.filter((c) => c.status === "failed");
+  if (r.outcome === "build-error" || run.targets.some((t) => ownFailure(deps.cwd, t, failed)))
     return result(advance(next), "Reproduced.", describeRun(r));
   if (next.runs.filter((x) => x.purpose === "reproduce").length >= 2)
     return result(

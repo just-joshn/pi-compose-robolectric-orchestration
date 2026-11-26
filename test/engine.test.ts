@@ -177,14 +177,15 @@ async function atFix(
 }
 
 describe("fix-failing proves the fix", () => {
-  it("reproduces one method, verifies the whole class, and proves the fix on the original code", async () => {
+  it("reproduces one method within its whole class, and proves the fix on the original code", async () => {
     const root = workspace({ test: twoTests("sibling") });
     const { run, d, gradle } = await atFix(root, behavior, "showsGreeting");
     expect(currentPhase(run)?.id).toBe("fix");
     write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
     const done = await step(run, d);
-    expect(gradle.calls[0]).toContain("a.FooTest.showsGreeting");
+    expect(gradle.calls[0]).toContain("a.FooTest");
     expect(gradle.calls[1]).toContain("a.FooTest");
+    expect(gradle.calls[2]).toContain("a.FooTest.showsGreeting");
     expect(done.run.status).toBe("verified");
     expect(read(root, MAIN_FILE)).toContain('"Hello"');
   });

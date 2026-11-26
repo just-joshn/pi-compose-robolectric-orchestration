@@ -183,10 +183,12 @@ function reports(target: Resolved, task: string): string[] {
     .map((f) => join(dir, f));
 }
 
+export const ofTest = (name: string, test: string) => name === test || name.startsWith(`${test}[`);
+
 const casesFor = (target: Resolved, task: string) =>
   reports(target, task).flatMap((file) =>
     parseJUnitXml(readFileSync(file, "utf8")).filter(
-      (c) => !target.method || c.name === target.method || c.name.startsWith(`${target.method}[`),
+      (c) => !target.method || ofTest(c.name, target.method),
     ),
   );
 
