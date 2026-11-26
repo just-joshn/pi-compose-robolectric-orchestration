@@ -357,3 +357,16 @@ describe("two method targets in one file", () => {
     expect(run.baselineTests).toEqual(["a.FooTest.second", "a.FooTest.showsGreeting"]);
   });
 });
+
+describe("round 18 gaps", () => {
+  it("fingerprints a build package inside a source set, never a module's build output", () => {
+    const root = workspace({ git: false });
+    const pkg = "app/src/main/java/a/build/Thing.kt";
+    write(root, pkg, "one");
+    write(root, "app/build/out.txt", "output");
+    const before = fingerprint(root);
+    expect(Object.keys(before.files)).not.toContain("app/build/out.txt");
+    write(root, pkg, "two");
+    expect(changedPaths(root, before, fingerprint(root))).toEqual([pkg]);
+  });
+});

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { type Exec, gradleConfig, parseJUnitXml, runTargets, testClasses } from "../src/gradle.ts";
-import { fakeGradle, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
+import { fakeGradle, passingTest, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
 
 const fooTarget = { file: TEST_FILE };
 const firstClass = (source: string, file: string) => testClasses(source, file)[0]?.name;
@@ -181,5 +181,29 @@ describe("a file with several top-level test classes", () => {
     await runTargets(exec, root, [{ file: TEST_FILE, method: "broken" }]);
     const filters = calls.map((args) => args.filter((_, i) => args[i - 1] === "--tests"));
     expect(filters).toEqual([["a.First", "a.Second"], ["a.Second.broken"]]);
+  });
+});
+
+describe("the same test class in two modules", () => {
+  it("keeps both modules' cases", async () => {
+    const root = workspace({ test: null });
+    write(root, "settings.gradle.kts", 'include(":app", ":lib")\n');
+    const files = ["app/src/test/java/a/FooTest.kt", "lib/src/test/java/a/FooTest.kt"];
+    for (const file of files) write(root, file, passingTest);
+    const exec: Exec = async (_c, args) => {
+      const module = args.includes(":lib:testDebugUnitTest") ? "lib" : "app";
+      write(
+        root,
+        `${module}/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml`,
+        '<testcase name="showsGreeting" classname="a.FooTest"/>',
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const result = await runTargets(
+      exec,
+      root,
+      files.map((file) => ({ file })),
+    );
+    expect(result.cases).toHaveLength(2);
   });
 });

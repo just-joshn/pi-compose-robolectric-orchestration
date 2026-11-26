@@ -241,7 +241,13 @@ export async function runTargets(
     command: commands.join(" && "),
     exitCode,
     outcome: outcomeOf(exitCode, perTarget),
-    cases: [...new Map(perTarget.flat().map((c) => [`${c.className}#${c.name}`, c])).values()],
+    cases: [
+      ...new Map(
+        resolved.flatMap((t, i) =>
+          (perTarget[i] ?? []).map((c) => [`${t.module}\0${c.className}#${c.name}`, c] as const),
+        ),
+      ).values(),
+    ],
     seconds: Math.round((Date.now() - started) / 100) / 10,
     outputTail: output
       .split("\n")

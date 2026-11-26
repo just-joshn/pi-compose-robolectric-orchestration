@@ -12,6 +12,11 @@ export interface Fingerprint {
 }
 
 const OUTPUT_DIR = /(^|\/)(build|\.gradle|\.kotlin|\.idea|node_modules|\.cxx|\.git)(\/|$)/;
+/** Output directories, but not a package of the same name inside a source set. */
+function isOutput(path: string): boolean {
+  const match = OUTPUT_DIR.exec(path);
+  return match !== null && !/(^|\/)src\//.test(path.slice(0, match.index + 1));
+}
 export const sha256 = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
 const sha = (data: Buffer | string) => sha256(data).slice(0, 16);
 
@@ -29,7 +34,7 @@ function git(cwd: string, args: readonly string[]) {
 function walk(root: string, dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return OUTPUT_DIR.test(`${entry.name}/`) ? [] : walk(root, path);
+    if (entry.isDirectory()) return isOutput(`${relative(root, path)}/`) ? [] : walk(root, path);
     return [relative(root, path)];
   });
 }
@@ -70,7 +75,7 @@ function hiddenPaths(cwd: string): string[] {
     ]) ?? ""
   )
     .split("\0")
-    .filter((entry) => entry && !OUTPUT_DIR.test(entry))
+    .filter((entry) => entry && !isOutput(entry))
     .flatMap((entry) => (entry.endsWith("/") ? walk(cwd, join(cwd, entry)) : [entry]))
     .filter((path) => categorize(path) !== "other");
   return [...flagged, ...ignored];
