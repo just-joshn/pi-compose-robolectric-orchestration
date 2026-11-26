@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { className, gradleConfig, parseJUnitXml, runTargets } from "../src/gradle.ts";
-import { countTests, lintTestSource } from "../src/lint.ts";
+import { lintTestSource } from "../src/lint.ts";
 import { addRun, finish, newRun, parseRun, report } from "../src/state.ts";
 import { recoverSwap, stateDir, withSwappedFiles } from "../src/swap.ts";
 import { changedPaths, digest, fingerprint } from "../src/tree.ts";
@@ -87,7 +87,6 @@ class A {
       "thread-sleep",
       "v1-compose-test-api",
     ]);
-    expect(countTests(passingTest)).toBe(1);
   });
 });
 

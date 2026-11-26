@@ -83,10 +83,23 @@ interface KotlinFunction {
   readonly isTest: boolean;
 }
 
-function lineOf(source: string, index: number) {
-  let line = 1;
-  for (let i = 0; i < index; i++) if (source[i] === "\n") line++;
-  return line;
+/** Offsets of every character in `chars`, in ascending order. */
+function offsets(text: string, chars: string): number[] {
+  const found: number[] = [];
+  for (let i = 0; i < text.length; i++) if (chars.includes(text.charAt(i))) found.push(i);
+  return found;
+}
+
+/** How many sorted offsets lie before `index` (binary search). */
+function countBefore(sorted: readonly number[], index: number): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if ((sorted[mid] ?? 0) < index) low = mid + 1;
+    else high = mid;
+  }
+  return low;
 }
 
 const blank = (text: string) => text.replace(/[^\n]/g, " ");
@@ -95,31 +108,22 @@ const blank = (text: string) => text.replace(/[^\n]/g, " ");
  * Blank out comments and string literals, keeping every newline and offset, so rules only see
  * code. Handles //, nested-free block comments, "...", """...""" and char literals.
  */
-export function stripCode(source: string): string {
-  let out = "";
-  let i = 0;
-  while (i < source.length) {
-    const rest = source.slice(i);
-    const token =
-      /^\/\/[^\n]*/.exec(rest) ??
-      /^\/\*[\s\S]*?(\*\/|$)/.exec(rest) ??
-      /^"""[\s\S]*?("""|$)/.exec(rest) ??
-      /^"(\\.|[^"\\\n])*"?/.exec(rest) ??
-      /^'(\\.|[^'\\\n])'/.exec(rest);
-    if (token) {
-      const text = token[0];
-      const quoted = text.startsWith('"') || text.startsWith("'");
-      out += quoted ? `${text[0]}${blank(text.slice(1, -1))}${text.at(-1)}` : blank(text);
-      i += text.length;
-    } else {
-      out += source[i];
-      i++;
-    }
-  }
-  return out;
-}
+export const stripCode = (source: string): string =>
+  source.replace(
+    /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"""[\s\S]*?(?:"""|$)|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])'/g,
+    (text) =>
+      text.startsWith('"') || text.startsWith("'")
+        ? `${text[0]}${blank(text.slice(1, -1))}${text.at(-1)}`
+        : blank(text),
+  );
 
 const OPENERS: Record<string, string> = { "(": ")", "{": "}", "[": "]" };
+
+const CONTINUATION = /\s*(\.|\?\.|&&|\|\||\+|-|\*|\/|\?:|=)/y;
+const continues = (source: string, at: number) => {
+  CONTINUATION.lastIndex = at;
+  return CONTINUATION.test(source);
+};
 
 /** End of an expression body: the first newline at depth zero not followed by a continuation. */
 function expressionEnd(source: string, start: number): number {
@@ -130,12 +134,7 @@ function expressionEnd(source: string, start: number): number {
     else if (")}]".includes(c)) {
       if (depth === 0) return i;
       depth--;
-    } else if (
-      c === "\n" &&
-      depth === 0 &&
-      !/^\s*(\.|\?\.|&&|\|\||\+|-|\*|\/|\?:|=)/.test(source.slice(i + 1))
-    )
-      return i;
+    } else if (c === "\n" && depth === 0 && !continues(source, i + 1)) return i;
   }
   return source.length;
 }
@@ -151,32 +150,39 @@ function blockEnd(source: string, start: number): number {
   return end;
 }
 
+const BODY_START = /[{=\n]/g;
+const ANNOTATIONS =
+  /((?:@[\w.]+(?:\([^)]*\))?\s*)*)(?:(?:public|private|internal|override|suspend|open)\s+)*$/;
+
+/** Index just past the `)` that closes the parameter list opened before `from`. */
+function closeParen(code: string, from: number): number {
+  let i = from;
+  for (let depth = 1; i < code.length && depth > 0; i++) {
+    if (code[i] === "(") depth++;
+    if (code[i] === ")") depth--;
+  }
+  return i;
+}
+
 /** Every `fun name(...)` with its body; `code` must already be stripped. */
 function functions(code: string): KotlinFunction[] {
+  const newlines = offsets(code, "\n");
+  const boundaries = offsets(code, "{};");
   const found: KotlinFunction[] = [];
   for (const match of code.matchAll(/\bfun\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?(`[^`]+`|\w+)\s*\(/g)) {
-    let i = (match.index ?? 0) + match[0].length;
-    let depth = 1;
-    while (i < code.length && depth > 0) {
-      if (code[i] === "(") depth++;
-      if (code[i] === ")") depth--;
-      i++;
-    }
-    const open = code.slice(i).search(/[{=\n]/);
-    const start = i + open;
-    if (open < 0 || code[start] === "\n") continue;
+    const at = match.index ?? 0;
+    BODY_START.lastIndex = closeParen(code, at + match[0].length);
+    const start = BODY_START.exec(code)?.index ?? -1;
+    if (start < 0 || code[start] === "\n") continue;
     const end = code[start] === "{" ? blockEnd(code, start) : expressionEnd(code, start + 1);
-    const before = code.slice(0, match.index ?? 0);
-    const annotations =
-      /((?:@[\w.]+(?:\([^)]*\))?\s*)*)(?:(?:public|private|internal|override|suspend|open)\s+)*$/.exec(
-        before,
-      )?.[1] ?? "";
+    const boundary = boundaries[countBefore(boundaries, at) - 1] ?? -1;
+    const header = ANNOTATIONS.exec(code.slice(boundary + 1, at))?.[1] ?? "";
     found.push({
       name: (match[1] ?? "").replaceAll("`", ""),
-      line: lineOf(code, match.index ?? 0),
-      header: annotations,
+      line: countBefore(newlines, at) + 1,
+      header,
       body: code.slice(start, end),
-      isTest: /@(org\.junit\.)?Test\b/.test(annotations),
+      isTest: /@(org\.junit\.)?Test\b/.test(header),
     });
   }
   return found;
@@ -250,5 +256,3 @@ export const countIgnores = (source: string) =>
   stripCode(source)
     .split("\n")
     .filter((line) => /^\s*@(org\.junit\.)?Ignore\b/.test(line)).length;
-
-export const countTests = (source: string) => testFunctions(source).length;
