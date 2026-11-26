@@ -75,7 +75,7 @@ export interface TestClass {
 }
 
 const DECLARATION = new RegExp(
-  `^[ \\t]*((?:${ANNOTATION}\\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\\s+)*)(?:class|object)\\s+(\\w+|\u0060[^\u0060\\n]+\u0060)`,
+  `^[ \\t]*((?:${ANNOTATION}\\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\\s+)*)(?:class|object)\\s+(\\w+|\`[^\`\\n]+\`)`,
   "gm",
 );
 
