@@ -409,9 +409,9 @@ class RealTest : Base()
 async function runMethod(source: string) {
   const root = workspace({ test: source });
   const exec: Exec = async (_command, args) => {
-    const filters = args.filter((_, i) => args[i - 1] === "--tests");
+    const filters = new Set(args.filter((_, i) => args[i - 1] === "--tests"));
     for (const name of ["BaseTest", "LeafTest"]) {
-      if (filters.includes(`a.${name}.inherited`)) {
+      if (filters.has(`a.${name}.inherited`)) {
         write(
           root,
           `app/build/test-results/testDebugUnitTest/TEST-a.${name}.xml`,
@@ -450,5 +450,40 @@ class OtherTest : Marker<BaseTest, String> {
 `);
     expect(result.outcome).toBe("passed");
   });
+});
 
+describe("transitive inherited test target selection", () => {
+  it("runs a concrete descendant through an abstract intermediate class", async () => {
+    const root = workspace({
+      test: `package a
+abstract class Base {
+  @Test fun inherited() {}
+}
+abstract class Intermediate : Base()
+class LeafTest : Intermediate()
+class OtherTest {
+  @Test fun other() {}
+}
+`,
+    });
+    const exec: Exec = async (_command, args) => {
+      const filters = new Set(args.filter((_, i) => args[i - 1] === "--tests"));
+      write(
+        root,
+        "app/build/test-results/testDebugUnitTest/TEST-a.OtherTest.xml",
+        '<testcase name="other" classname="a.OtherTest"/>',
+      );
+      if (filters.has("a.LeafTest")) {
+        write(
+          root,
+          "app/build/test-results/testDebugUnitTest/TEST-a.LeafTest.xml",
+          '<testcase name="inherited" classname="a.LeafTest"><failure/></testcase>',
+        );
+      }
+      recordTask(root, args);
+      return { code: filters.has("a.LeafTest") ? 1 : 0, stdout: "", stderr: "" };
+    };
+    const result = await runTargets(deps(root, exec), [{ file: TEST_FILE }]);
+    expect(result.outcome).toBe("failed");
+  });
 });

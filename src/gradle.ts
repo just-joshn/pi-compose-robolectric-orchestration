@@ -133,17 +133,16 @@ export function testClasses(source: string, file: string): TestClass[] {
       tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name),
     };
   });
+  const byName = new Map(declarationsWithTests.map((c) => [c.name, c]));
+  const inherited = (name: string, seen: Set<string>): string[] => {
+    const declaration = byName.get(name);
+    if (!declaration || seen.has(name)) return [];
+    seen.add(name);
+    return [...declaration.tests, ...declaration.bases.flatMap((base) => inherited(base, seen))];
+  };
   const classes = declarationsWithTests
     .filter((c) => !c.abstract)
-    .map((c) => ({
-      name: qualify(c.name),
-      tests: [
-        ...c.tests,
-        ...declarationsWithTests
-          .filter((base) => c.bases.includes(base.name))
-          .flatMap((base) => base.tests),
-      ],
-    }));
+    .map((c) => ({ name: qualify(c.name), tests: inherited(c.name, new Set()) }));
   const withTests = classes.filter((c) => c.tests.length > 0);
   if (withTests.length) return withTests;
   return [
