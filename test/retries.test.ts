@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { type Exec, runTargets } from "../src/gradle.ts";
 import { deps, recordTask, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
 
-/** Like Gradle with test-retry and mergeReruns: one testcase holds every attempt, and it exits 0. */
 const retried = (root: string, attempt: string): Exec => {
   return async (_command, args) => {
     const failed = `<${attempt} message="expected:&lt;false&gt; but was:&lt;true&gt;" type="java.lang.AssertionError"><stackTrace>trace</stackTrace></${attempt}>`;

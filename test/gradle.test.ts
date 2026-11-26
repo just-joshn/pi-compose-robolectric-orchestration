@@ -278,7 +278,6 @@ describe("a module whose Gradle path differs from its directory", () => {
 describe("tests in nested classes", () => {
   const inner = "a.FooTest$WhenShouting";
   const source = `package a\nclass FooTest {\n  @Test fun greets() { assert(true) }\n  class WhenShouting {\n    @Test fun shouts() { assert(false) }\n  }\n}\n`;
-  /** Like Gradle: a class filter does not match a nested class; a filter must name it. */
   const exec =
     (root: string): Exec =>
     async (_c, args) => {
@@ -315,7 +314,6 @@ describe("a module with a child project", () => {
     const root = workspace();
     write(root, "settings.gradle.kts", 'include(":app", ":app:sub")\n');
     write(root, "app/sub/src/test/java/b/SubTest.kt", "package b\nclass SubTest");
-    /** Like Gradle: -p app also runs :app:sub's test task, which fails on a filter it cannot match. */
     const exec: Exec = async (_c, args) => {
       write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest"/>');
       recordTask(root, args);
@@ -346,7 +344,6 @@ describe("a child project's results", () => {
     const sub = `${dir}/src/test/java/b/SubTest.kt`;
     write(root, sub, "package b\nclass SubTest {\n  @Test fun works() { assert(true) }\n}\n");
     const subResults = `${dir}/build/test-results/testDebugUnitTest`;
-    /** Like Gradle: -p app also reruns :app:sub's test task, which clears the child's results. */
     const exec: Exec = async (_c, args) => {
       rmSync(join(root, subResults), { recursive: true, force: true });
       if (args.includes(dir))
@@ -366,7 +363,6 @@ describe("a child project's results", () => {
   });
 });
 
-/** Like pi.exec: an abort during the run kills Gradle, which exits 143 without results. */
 function abortedRun() {
   const controller = new AbortController();
   const exec: Exec = async () => {

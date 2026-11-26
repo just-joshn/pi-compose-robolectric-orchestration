@@ -13,7 +13,6 @@ import { basename, dirname, join } from "node:path";
 import { isArrayOf, isRecord, isString } from "./guards.ts";
 import { sha256 } from "./tree.ts";
 
-/** Per-workspace directory outside the repository, so it never shows up in the fingerprint. */
 export function stateDir(cwd: string, env = process.env): string {
   const root = env["PI_COMPOSE_TEST_HOME"] ?? join(homedir(), ".pi", "agent", "compose-test");
   const dir = join(root, sha256(cwd).slice(0, 16));
@@ -26,7 +25,6 @@ export function atomicWrite(path: string, content: string) {
   renameSync(`${path}.tmp`, path);
 }
 
-/** Replace a file's content for the duration of a run; null deletes it. */
 export interface FileSwap {
   readonly path: string;
   readonly content: Buffer | null;
@@ -75,7 +73,6 @@ const holding = new Set<string>();
 const held = (path: string, journal: Journal) =>
   journal.pid === process.pid ? holding.has(path) : alive(journal.pid);
 
-/** Create the journal only if none exists, so two sessions can never both hold one. */
 function claim(path: string, journal: Journal) {
   const temp = `${path}.${process.pid}.tmp`;
   writeFileSync(temp, JSON.stringify(journal));
@@ -102,10 +99,6 @@ function put(path: string, content: Buffer | null) {
   } else rmSync(path, { force: true });
 }
 
-/**
- * Put each file back only if it still holds what the extension wrote. A file someone else changed
- * meanwhile is left alone and its original is saved next to the pending record.
- */
 function restore(
   dir: string,
   files: readonly PendingFile[],
@@ -129,10 +122,6 @@ function restore(
   return { restored, conflicts };
 }
 
-/**
- * Apply the swaps, run `work`, then restore. The originals are recorded on disk first, so a
- * crash is repaired by recoverSwap on the next session start.
- */
 export async function withSwappedFiles<T>(
   dir: string,
   swaps: readonly FileSwap[],
@@ -166,7 +155,6 @@ export async function withSwappedFiles<T>(
   return { value, conflicts: restoreAll() };
 }
 
-/** Recover a pending swap unless a live run, in this process or another, still holds it. */
 export function recoverSwap(dir: string): { restored: string[]; conflicts: string[] } {
   const path = join(dir, PENDING);
   const journal = readJournal(path);

@@ -92,7 +92,6 @@ async function stepTimes(run: Run, d: Deps, times: number): Promise<Run> {
   return times === 0 ? run : stepTimes((await step(run, d)).run, d, times - 1);
 }
 
-/** The original assertion fails on broken code; a weakened one passes. */
 const strict = (main: string, test: string): Verdict =>
   test.includes('"Hello").assertIsDisplayed') && main.includes("BROKEN") ? "fail" : "pass";
 

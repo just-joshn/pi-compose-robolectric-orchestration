@@ -159,7 +159,6 @@ function completeFindings(run: Run, deps: Deps): Run {
 
 type Runner = (run: Run, deps: Deps, phase: Phase) => Promise<StepResult>;
 
-/** The phases the extension executes itself; every other kind waits for the model. */
 const RUNNERS: Partial<Record<PhaseKind, Runner>> = {
   verify,
   reproduce,
@@ -206,10 +205,6 @@ export async function step(run: Run, deps: Deps): Promise<StepResult> {
   return runOwned(COMPLETERS[phase.kind]?.(run, deps) ?? run, deps, []);
 }
 
-/**
- * Run the targets with files temporarily replaced and require a test failure. A file someone
- * else changed meanwhile is left as they wrote it and the run ends as INCOMPLETE.
- */
 async function control(
   run: Run,
   purpose: Purpose,
@@ -273,10 +268,6 @@ export async function mutate(run: Run, raw: MutationInput, deps: Deps): Promise<
   );
 }
 
-/**
- * Regression check for a fix: run the final tests against the original production code and
- * require them to fail there. With no production change, a negative control is required instead.
- */
 async function regressionCheck(run: Run, deps: Deps): Promise<StepResult> {
   const production = changes(run, deps.cwd).filter((p) => categorize(p) === "production");
   if (production.length === 0) {

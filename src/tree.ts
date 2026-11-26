@@ -5,14 +5,12 @@ import { dirname, join, relative, sep } from "node:path";
 
 import { categorize } from "./paths.ts";
 
-/** The working tree as HEAD plus a truncated content hash for every path that differs from it: dirty and untracked files, files git hides that sit in source sets or build files, and every file when there is no git. Build output directories are never included. */
 export interface Fingerprint {
   readonly head: string | null;
   readonly files: Readonly<Record<string, string>>;
 }
 
 const OUTPUT_DIR = /(^|\/)(build|\.gradle|\.kotlin|\.idea|node_modules|\.cxx|\.git)(\/|$)/;
-/** Output directories, but not a package of the same name inside a source set. */
 function isOutput(path: string): boolean {
   const match = OUTPUT_DIR.exec(path);
   return match !== null && !/(^|\/)src\//.test(path.slice(0, match.index + 1));
@@ -55,10 +53,6 @@ function dirtyPaths(cwd: string, top: string, status: string): string[] {
     .filter((p) => p !== ".." && !p.startsWith(`..${sep}`) && !isOutput(`${dirname(p)}/`));
 }
 
-/**
- * Paths git status hides but a workflow must see: files flagged assume-unchanged or
- * skip-worktree, and ignored files in source sets or build files.
- */
 function hiddenPaths(cwd: string): string[] {
   const flagged = (git(cwd, ["ls-files", "-v", "-z", "--", "."]) ?? "")
     .split("\0")

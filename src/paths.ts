@@ -18,7 +18,6 @@ export function categorize(path: string): Category {
   return "other";
 }
 
-/** Kotlin source: the test inventory and lint rules parse Kotlin only. */
 export const isSource = (path: string) => path.endsWith(".kt");
 
 function within(root: string, path: string): boolean {
@@ -45,7 +44,6 @@ export function toolPath(cwd: string, path: string): string {
   return resolve(cwd, bare);
 }
 
-/** Inside the workspace both as written and where a write would land after resolving symlinks. */
 export function inside(cwd: string, path: string): boolean {
   const full = resolve(cwd, path);
   const target = landing(full);

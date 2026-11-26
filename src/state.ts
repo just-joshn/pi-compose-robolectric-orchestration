@@ -27,10 +27,8 @@ export interface TestRun {
   readonly outcome: Outcome;
   readonly cases: readonly TestCase[];
   readonly seconds: number;
-  /** Test task time measured by Gradle's test listener, class-level setup included; null if unmeasured. */
   readonly testSeconds: number | null;
   readonly outputTail: string;
-  /** Digest of the tree the tests ran against (the pre-swap tree for mutation and regression runs). */
   readonly tree: string;
 }
 
@@ -47,18 +45,15 @@ export interface Finding extends LintFinding {
   readonly source: "agent" | "lint";
 }
 
-/** routing: /compose-test was issued and no workflow has started yet. */
 export type Status = "routing" | "active" | "verified" | "blocked" | "incomplete";
 const STATUSES: readonly Status[] = ["routing", "active", "verified", "blocked", "incomplete"];
 
 export interface Run {
   readonly version: 3;
-  /** Distinguishes runs, since each new run's revision starts at 0 again. */
   readonly id: string;
   readonly goal: string;
   readonly status: Status;
   readonly statusReason: string;
-  /** Workflow fixed by `/compose-test <workflow> ...`. */
   readonly forcedWorkflow: WorkflowId | null;
   readonly workflow: WorkflowId | null;
   readonly targets: readonly Target[];
@@ -66,18 +61,14 @@ export interface Run {
   readonly source: string | null;
   readonly phaseIndex: number;
   readonly baseline: Fingerprint | null;
-  /** File holding the start content of files that were uncommitted at start. */
   readonly snapshot: string | null;
-  /** `Class.method` of each test found in the targets at start. */
   readonly baselineTests: readonly string[];
   readonly runs: readonly TestRun[];
   readonly mutations: readonly Mutation[];
   readonly findings: readonly Finding[];
-  /** Files opened with the read tool during the current phase. */
   readonly reads: readonly string[];
   readonly nudges: number;
   readonly backtracks: number;
-  /** Revision whose terminal status was posted. */
   readonly reported: number;
   readonly revision: number;
 }
@@ -110,7 +101,6 @@ export const newRun = (goal: string, forcedWorkflow: WorkflowId | null): Run => 
   revision: 0,
 });
 
-/** Every meaningful change bumps the revision; the settle gate uses it to detect progress. */
 export const revise = (run: Run, patch: Partial<Run>): Run => ({
   ...run,
   ...patch,
@@ -147,7 +137,6 @@ const isTarget = (v: unknown): v is Target =>
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
 const isNullable = (v: unknown, guard: (x: unknown) => boolean) => v === null || guard(v);
 
-/** An active run's phase index must point at a phase; a finished run may sit one past the last. */
 function reachable(workflow: WorkflowId | null, status: Status, phase: number): boolean {
   const phases = workflow === null ? 0 : workflows[workflow].phases.length;
   if (status === "active" && workflow === null) return false;
@@ -189,7 +178,6 @@ const isFingerprint = (v: unknown): v is Fingerprint =>
 
 const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
 
-/** A persisted run whose fields have the expected primitive types and whose phase is reachable. */
 export function isRun(v: unknown): v is Run {
   if (!isRecord(v) || v["version"] !== 3) return false;
   const { workflow, status, phaseIndex } = v;

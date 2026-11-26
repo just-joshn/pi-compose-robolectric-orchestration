@@ -33,10 +33,6 @@ class FooTest(private val suffix: String) {
 }
 `;
 
-/**
- * Like Gradle running a JUnit Parameterized class: one case `greets[i]` per data() element, 0.5s
- * each. The "?" case of the flaky version fails on odd calls.
- */
 function gradle(root: string): Exec {
   let call = 0;
   return async (_command, args) => {
@@ -57,7 +53,6 @@ function gradle(root: string): Exec {
   };
 }
 
-/** Runs the phases before the edit, applies `edit`, then completes the workflow with a negative control. */
 async function drive(workflow: WorkflowId, source: string, edit: (s: string) => string) {
   const root = workspace({ test: source });
   const d: Deps = deps(root, gradle(root));

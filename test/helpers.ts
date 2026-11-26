@@ -18,7 +18,6 @@ import { newRun } from "../src/state.ts";
 export const TEST_FILE = "app/src/test/java/a/FooTest.kt";
 export const MAIN_FILE = "app/src/main/java/a/Foo.kt";
 export const RESULT_XML = "app/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml";
-/** The file the init script's test listener records each Test task that ran to. */
 export function recordFile(args: readonly string[]): string {
   const property = "-DcomposeTest.record=";
   return args.find((a) => a.startsWith(property))?.slice(property.length) ?? "";
@@ -31,7 +30,6 @@ interface TaskRun {
   readonly ms?: number;
 }
 
-/** Like the init script: records that a Test task ran, by default the -p module's, in the default layout. */
 export function recordTask(root: string, args: readonly string[], run: TaskRun = {}) {
   const module = run.module ?? args[args.indexOf("-p") + 1] ?? ".";
   const task = run.task ?? args[args.indexOf("-p") + 2] ?? "";
@@ -99,10 +97,6 @@ const xml = (cases: readonly [string, boolean][]) =>
     )
     .join("")}</testsuite>`;
 
-/**
- * A fake Gradle: decides each run from the current workspace content, writes the JUnit XML a real
- * run would write, and records every invocation.
- */
 export function fakeGradle(
   root: string,
   decide: (main: string, test: string, call: number) => Verdict,
@@ -131,17 +125,11 @@ export function fakeGradle(
   return { exec, calls };
 }
 
-/** A Gradle --tests filter as a regular expression; `*` is its only wildcard. */
 export const glob = (filter: string) =>
   new RegExp(`^${filter.replaceAll(/[.$[\]()]/g, "\\$&").replaceAll("*", ".*")}$`);
 
 const RESULT_TAG = { passed: "", failed: '<failure message="x"/>', skipped: "<skipped/>" };
 
-/**
- * A fake Gradle that runs each @Test function of the target file its --tests filters match, with
- * the status `status` gives its code (strings blanked) and the production file, and the task time
- * `ms` gives.
- */
 export function junitGradle(
   root: string,
   status: (body: string, main: string) => TestCase["status"],

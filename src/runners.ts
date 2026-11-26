@@ -38,10 +38,6 @@ const STRESS_RUNS = 5;
 const MEASURE_RUNS = 3;
 const MIN_SPEEDUP = 0.05;
 
-/**
- * Every run but a negative control or regression check runs whole classes, so tests beside a
- * named method cannot fail, be skipped or disappear unseen.
- */
 export async function execute(
   run: Run,
   purpose: Purpose,

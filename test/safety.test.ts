@@ -30,7 +30,6 @@ const aCase = {
   status: "passed",
   seconds: 1,
 } as const;
-/** fix-flaky's fix phase, after its pre-edit run. */
 const inFixPhase = (run: Run): Run => ({ ...run, phaseIndex: 1 });
 const aRun: TestRun = {
   id: 1,

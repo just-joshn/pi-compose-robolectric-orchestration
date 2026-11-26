@@ -8,7 +8,6 @@ import { INIT_SCRIPT, RECORD_PROPERTY, takeOwnTask } from "./record.ts";
 import { atomicWrite } from "./swap.ts";
 
 export interface Target {
-  /** Path relative to the workspace root. */
   readonly file: string;
   readonly method?: string;
 }
@@ -37,7 +36,7 @@ export interface Execution {
   readonly outcome: Outcome;
   readonly cases: readonly TestCase[];
   readonly seconds: number;
-  /** Test task time from Gradle's test listener; unlike JUnit XML times it includes class setup. Null when Gradle reported none. */
+  /** From Gradle's test listener; unlike JUnit XML times it includes class setup. */
   readonly testSeconds: number | null;
   readonly outputTail: string;
 }
@@ -51,7 +50,6 @@ export type Exec = (
 export interface GradleDeps {
   readonly cwd: string;
   readonly exec: Exec;
-  /** Private state directory outside the workspace. */
   readonly dir: string;
   readonly signal?: AbortSignal;
 }
@@ -89,10 +87,6 @@ function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], 
   return (at: number) => bodies.some(([from, to]) => at > from && at < to);
 }
 
-/**
- * Concrete top-level classes with tests that are not @Ignore'd (an abstract class's tests run under
- * its subclasses). With none, the last concrete top-level class or the file name.
- */
 export function testClasses(source: string, file: string): TestClass[] {
   const code = stripCode(source);
   const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
@@ -193,7 +187,6 @@ const casesFor = (target: Resolved, dir: string) =>
     ),
   );
 
-/** Every target must run a case, so a target that ran nothing cannot hide behind another. */
 function outcomeOf(exitCode: number, perTarget: readonly (readonly TestCase[])[]): Outcome {
   if (perTarget.some((cases) => cases.every((c) => c.status === "skipped")))
     return exitCode === 0 ? "no-tests" : "build-error";
@@ -210,10 +203,7 @@ interface Invocation {
   readonly targets: readonly Resolved[];
 }
 
-/**
- * One per process and never deleted, since a run in flight may still hand it to Gradle. Its content
- * never changes, so writing it again keeps Gradle's configuration cache.
- */
+/** Never deleted: a run in flight may still hand it to Gradle. Unchanged content keeps Gradle's configuration cache. */
 const SCRIPT = `${randomUUID()}.init.gradle`;
 
 const total = (parts: readonly (number | null)[]) =>
@@ -231,7 +221,6 @@ function invocation(
   // Gradle maps the module directory to its project, which may sit at a different path.
   const module = group[0]?.module ?? root;
   const moduleDir = relative(root, module) || ".";
-  // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   // A class filter does not match the class's nested classes, which Gradle names Outer$Inner, and
   // a method filter does not match the method's parameterized cases, which it names method[i].
@@ -295,10 +284,6 @@ async function inOrder(
   return [ran, ...(await inOrder(exec, rest, { task, ...options }))];
 }
 
-/**
- * Run the targets with `--rerun`, one Gradle invocation per module, and read only the JUnit XML
- * this run wrote.
- */
 export async function runTargets(
   { cwd, exec, dir, signal }: GradleDeps,
   targets: readonly Target[],

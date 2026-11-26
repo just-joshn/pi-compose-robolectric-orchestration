@@ -17,11 +17,6 @@ import {
 
 type Cases = Readonly<Record<string, readonly (readonly [name: string, ok: boolean])[]>>;
 
-/**
- * Like Gradle: a filter names a class or `Class.method`, `*` is its only wildcard, a class-level
- * failure (classMethod) shows whenever any of the class's tests runs, and every class that ran a
- * case gets its own report.
- */
 function gradle(root: string, cases: () => Cases): Exec {
   return async (_c, args) => {
     const filters = args.filter((_, i) => args[i - 1] === "--tests").map(glob);
@@ -59,7 +54,6 @@ class SuffixTest(private val suffix: String) {
 }
 `;
 
-/** greets and every startsWithGreeting case fail while greeting() is BROKEN; `extra` adds or overrides FooTest's cases. */
 function fixFailing(extra: readonly (readonly [string, boolean])[] = [], method = "greets") {
   const root = workspace({ test: source });
   write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
@@ -114,7 +108,6 @@ describe("fix-failing with a method target", () => {
   });
 });
 
-/** Gradle's output, from real Gradle 8.14.5 and Kotlin 2.2.20, for a run that executed no test. */
 const NOTHING_RAN = {
   "timeout kill": { code: 143, stdout: "> Task :app:compileTestKotlin\n", stderr: "" },
   "missing dependency": {

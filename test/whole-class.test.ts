@@ -20,14 +20,12 @@ import {
 const SOURCE = "app/src/androidTest/java/a/FooDeviceTest.kt";
 const SHOWS = 'rule.onNodeWithText("Hello").assertIsDisplayed()';
 
-/** A test file whose class holds one @Test function per [name, body]. */
 const testFile = (...tests: readonly (readonly [string, string])[]) =>
   passingTest.replace(
     /  @Test[\s\S]*\n\}\n$/,
     `${tests.map(([name, body]) => `  @Test\n  fun ${name}() {\n    ${body}\n  }\n`).join("\n")}}\n`,
   );
 
-/** Like JUnit: assumeTrue(false) skips, assertEquals(99, …) fails, and a broken greeting fails. */
 const junit = (body: string, main: string) =>
   body.includes("assumeTrue(false)")
     ? "skipped"
@@ -35,7 +33,6 @@ const junit = (body: string, main: string) =>
       ? "failed"
       : "passed";
 
-/** Writes the source to migrate, starts `input`, writes `written` and completes the run. */
 async function finish(input: StartInput, written: string, existing: string | null = null) {
   const root = workspace({ test: existing });
   write(root, SOURCE, testFile(["showsGreeting", SHOWS], ["second", SHOWS]));

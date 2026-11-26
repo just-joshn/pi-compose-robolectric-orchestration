@@ -24,7 +24,6 @@ const reply = (run: Run, message: string) => ({
   details: { status: run.status, workflow: run.workflow, phase: currentPhase(run)?.id ?? null },
 });
 
-/** The run for the current session branch. Every change is persisted as a session entry. */
 export class Session {
   private current: Run | null = null;
   private queue: Promise<unknown> = Promise.resolve();
@@ -44,7 +43,6 @@ export class Session {
     return run;
   }
 
-  /** Rebuild from the latest state on the active branch; abandoned branches are ignored. */
   restore(ctx: ExtensionContext): void {
     this.current = null;
     for (const entry of ctx.sessionManager.getBranch())
@@ -52,7 +50,6 @@ export class Session {
         this.current = entry.data;
   }
 
-  /** Serialize Gradle runs and file swaps, even when tool calls run in parallel. */
   exclusive<T>(work: () => Promise<T>): Promise<T> {
     const next = this.queue.then(work, work);
     this.queue = next.catch(() => undefined);
@@ -70,7 +67,6 @@ export class Session {
     return reply(this.set(result.run), result.message);
   }
 
-  /** Run serialized work; keep its result only if nothing (such as a cancel) changed the run meanwhile. */
   commit(work: (run: Run) => Promise<StepResult>) {
     return this.exclusive(async () => {
       const before = this.require();

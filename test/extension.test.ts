@@ -93,7 +93,6 @@ const isExtensionApi = (value: object): value is ExtensionAPI =>
     (name) => name in value,
   );
 
-/** Run handlers in registration order, like Pi; the last defined result wins. */
 async function runHandlers(
   handlers: readonly Handler[],
   event: Record<string, unknown>,

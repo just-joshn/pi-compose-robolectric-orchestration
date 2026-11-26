@@ -23,7 +23,6 @@ export function scopeViolations(run: Run, cwd: string): string[] {
   return changes(run, cwd).filter((path) => !allowed.has(categorize(path)));
 }
 
-/** Save the test and production files that were already uncommitted at start; clean files are read back from git. */
 export function saveSnapshot(cwd: string, baseline: Fingerprint, dir: string): string {
   const files: Record<string, string> = {};
   for (const path of Object.keys(baseline.files)) {
@@ -57,7 +56,6 @@ export function baselineContent(cwd: string, run: Run, path: string): Buffer | n
 const counts = (names: readonly string[]) =>
   names.reduce((m, n) => m.set(n, (m.get(n) ?? 0) + 1), new Map<string, number>());
 
-/** Names that occur more often in `a` than in `b`; nested classes may reuse a test name. */
 function surplus(a: readonly string[], b: readonly string[]): string[] {
   const inB = counts(b);
   return [...counts(a)].filter(([name, n]) => (inB.get(name) ?? 0) < n).map(([name]) => name);
@@ -65,10 +63,6 @@ function surplus(a: readonly string[], b: readonly string[]): string[] {
 
 const testNames = (source: string) => testFunctions(source).map((t) => t.name);
 
-/**
- * Test files that lost @Test functions, gained @Ignore, or were deleted. A refactor's targets may
- * merge tests, and a migration may delete the source it moved.
- */
 export function weakenedTests(run: Run, cwd: string, changed: readonly string[]): string[] {
   const reshape = new Set(
     run.workflow === "refactor" ? run.targets.map((t) => t.file) : run.source ? [run.source] : [],
@@ -115,11 +109,9 @@ export function editProblem(run: Run, cwd: string): string | undefined {
   return undefined;
 }
 
-/** Tests JUnit will run: @Ignore'd tests and abstract classes do not count as migrated cases. */
 const liveTests = (source: string, file: string) =>
   testClasses(source, file).flatMap((c) => c.tests).length;
 
-/** `Class.method` of each test JUnit runs in the files. */
 export const testIds = (cwd: string, files: readonly string[]) =>
   [...new Set(files)].flatMap((file) =>
     testClasses(read(cwd, file), file).flatMap((c) => c.tests.map((n) => `${c.name}.${n}`)),
@@ -138,17 +130,11 @@ const passes = (r: TestRun, test: string) =>
 
 const firstCases = (run: Run) => run.runs.find((r) => !ranNothing(r))?.cases ?? [];
 
-/** A test an assumption skipped before any change, such as one gated on a newer SDK. */
 function skippedAtStart(run: Run, test: string): boolean {
   const cases = firstCases(run).filter((c) => ofTest(caseId(c), test));
   return cases.length > 0 && cases.every((c) => c.status === "skipped");
 }
 
-/**
- * Cases of the start's tests, each parameterized case on its own, that ran in the first run to
- * pass or fail but do not pass in `last`; a run a crash cut short may lack cases. A class-level
- * failure names no test, so a fix may remove it.
- */
 function lostCases(run: Run, last: TestRun): string[] {
   const ids = (cases: readonly TestCase[]) =>
     cases.map(caseId).filter((id) => run.baselineTests.some((t) => ofTest(id, t)));
@@ -156,7 +142,6 @@ function lostCases(run: Run, last: TestRun): string[] {
   return surplus(ran, ids(last.cases.filter((c) => c.status === "passed")));
 }
 
-/** Tests at start, each parameterized case on its own, that do not pass in `last`. */
 function lostTests(run: Run, last: TestRun): string[] {
   const needed = (name: string) => run.baselineTests.filter((t) => t === name).length;
   const lost = [...new Set(run.baselineTests)].filter(
@@ -165,7 +150,6 @@ function lostTests(run: Run, last: TestRun): string[] {
   return [...new Set([...lost, ...lostCases(run, last)])];
 }
 
-/** Cases of the tests the targets gained that `last` skipped, as a failed assumption does. */
 function skippedMigrations(run: Run, cwd: string, last: TestRun): string[] {
   const files = run.targets.map((t) => t.file);
   const gained = testIds(cwd, files).filter((t) => !run.baselineTests.includes(t));
@@ -222,7 +206,6 @@ function problems(run: Run, cwd: string): string[] {
   return found;
 }
 
-/** Decide the final status. A failed check sends the run back to its edit phase while retries remain. */
 export function finalize(run: Run, cwd: string): Run {
   const found = problems(run, cwd);
   if (found.length === 0) return finish(run, "verified", "All checks passed.");

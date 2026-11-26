@@ -24,7 +24,6 @@ const SDK_GATED = twoTests("onlyOnNewSdks").replace(
   'assumeTrue(Build.VERSION.SDK_INT >= 34)\n    rule.onNodeWithText("Hi").assertExists()',
 );
 
-/** Like JUnit on an older SDK: the assumption skips its test, and a broken greeting fails the rest. */
 const onOldSdk = (body: string, main: string) =>
   body.includes("assumeTrue") ? "skipped" : main.includes("BROKEN") ? "failed" : "passed";
 
@@ -35,7 +34,6 @@ const fixes = {
   performance: (root: string) => write(root, BUILD_FILE, "// tuned\n"),
 };
 
-/** Runs the workflow on SDK_GATED with a correct change, through its negative control if it has one. */
 async function drive(workflow: keyof typeof fixes): Promise<Run> {
   const root = workspace({ test: SDK_GATED });
   if (workflow === "fix-failing") write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');

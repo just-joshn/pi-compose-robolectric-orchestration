@@ -20,10 +20,8 @@ const baseline = (root: string, d: Deps) =>
   step(start(newRun("g", null), input, root, d.dir).run, d);
 const optimize = (root: string) => write(root, "app/build.gradle.kts", "// tuned\n");
 
-/** What the build does to the test time after Gradle's listener records the real 1.5s. */
 type Build = "honest" | "forges" | "deletes";
 
-/** Like Gradle with the extension's init script and the build's own test task actions. */
 function gradle(root: string, build: () => Build): Exec {
   return async (_command, args) => {
     write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest" time="1"/>');
@@ -38,7 +36,6 @@ describe("measuring test time", () => {
   it("counts class-level setup, so moving work out of the test cases is no speedup", async () => {
     const root = workspace();
     let caseSeconds = 1;
-    /** Like Gradle with the extension's init script: XML case times leave out @BeforeClass. */
     const exec: Exec = async (_command, args) => {
       const testCase = `<testcase name="showsGreeting" classname="a.FooTest" time="${caseSeconds}"/>`;
       write(root, RESULT_XML, `<testsuite time="${caseSeconds}">${testCase}</testsuite>`);
@@ -99,11 +96,9 @@ describe("a build script that tampers with the test time", () => {
   });
 });
 
-/** Like JUnit: a test that checks the greeting fails when it is broken. */
 const checksGreeting = (body: string, main: string) =>
   main.includes("BROKEN") && body.includes("onNodeWithText") ? "failed" : "passed";
 
-/** Like Gradle with the extension's init script, timing the nth run at `ms[n]`. */
 function timed(root: string, ms: readonly number[]): Exec {
   let call = 0;
   return junitGradle(root, checksGreeting, () => ms[call++] ?? 0);

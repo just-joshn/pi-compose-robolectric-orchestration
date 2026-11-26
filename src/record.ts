@@ -9,11 +9,9 @@ import { isRecord, isString } from "./guards.ts";
 export const RECORD_PROPERTY = "composeTest.record";
 
 /**
- * `-p <module>` also runs the task in child projects, whose tests never match the filters. Each
- * Test task that runs records its project, its JUnit XML directory and its root suite's time, which
- * spans every test class, class-level setup included. It first deletes its old reports: Gradle
- * replaces them only after the tests, so a run killed in between, or one with XML reports turned
- * off, would leave them.
+ * `-p <module>` also runs the task in child projects, whose tests never match the filters. The root
+ * suite's time spans every test class, class-level setup included. Gradle replaces old JUnit XML
+ * only after the tests, so a run killed in between, or one with XML reports off, would leave them.
  */
 export const INIT_SCRIPT = `allprojects {
   tasks.withType(Test).configureEach { task ->
@@ -53,10 +51,6 @@ function parseLine(line: string): unknown {
 
 const canonical = (path: string) => (existsSync(path) ? realpathSync(path) : path);
 
-/**
- * Consume the record and return what the module's own `task` recorded, if it ran. A line a kill
- * cut short is skipped.
- */
 export function takeOwnTask(record: string, task: string, module: string): TaskRecord | undefined {
   const text = existsSync(record) ? readFileSync(record, "utf8") : "";
   rmSync(record, { force: true });

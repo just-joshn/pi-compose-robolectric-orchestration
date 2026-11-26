@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import type { Category } from "./paths.ts";
 
-/** The model completes "edit" and "findings" phases with compose_test_step and "mutation" with compose_test_mutate. The extension executes every other kind and decides its outcome. */
 export type PhaseKind =
   | "edit"
   | "findings"
@@ -19,19 +18,15 @@ export type PhaseKind =
 export interface Phase {
   readonly id: string;
   readonly kind: PhaseKind;
-  /** Categories the phase may change; only edit phases change anything. */
   readonly scope: readonly Category[];
   readonly instruction: string;
-  /** Why the edit phase cannot end with nothing changed since start, if it cannot. */
   readonly ifUnchanged?: string;
 }
 
 export interface Workflow {
   readonly trigger: string;
   readonly phases: readonly Phase[];
-  /** Every test that existed at start must still exist and pass, unless an assumption skipped it then. */
   readonly preserveTests: boolean;
-  /** Target test files may be created rather than exist at start. */
   readonly createsTargets: boolean;
   readonly references: readonly string[];
 }

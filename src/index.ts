@@ -14,7 +14,6 @@ import { recoverSwap, stateDir } from "./swap.ts";
 import { registerTools, Session } from "./tools.ts";
 import { isWorkflowId, kickoff, workflowIds } from "./workflows.ts";
 
-/** Continuations without progress before a run ends as INCOMPLETE. */
 const MAX_NUDGES = 3;
 
 const pathOf = (input: Record<string, unknown>) =>
@@ -149,7 +148,6 @@ function settle(session: Session, cwd: string): { status: string } | { gate: str
   return { gate: `compose-test is not finished, so do not report completion. ${next}` };
 }
 
-/** The last point before Pi goes idle. Fails closed: an error continues the run. */
 function registerSettle(pi: ExtensionAPI, session: Session) {
   pi.on("agent_before_settle", async (event, ctx) => {
     try {

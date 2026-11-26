@@ -14,7 +14,6 @@ import {
   write,
 } from "./helpers.ts";
 
-/** Like a bash call running alongside compose_test_step: Gradle's `at`th run sees the test edited. */
 const editedDuring = (root: string, at: number) => (main: string, _test: string, call: number) => {
   if (call === at) write(root, TEST_FILE, `${read(root, TEST_FILE)}// edited meanwhile\n`);
   return behavior(main);

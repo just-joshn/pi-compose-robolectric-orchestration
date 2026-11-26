@@ -14,17 +14,12 @@ interface LineRule {
   readonly pattern: RegExp;
   readonly message: string;
   readonly when?: (source: string) => boolean;
-  /** Lines matching this are exempt, e.g. the documented remedy for the rule. */
   readonly except?: RegExp;
 }
 
 const usesComposeRule = (source: string) =>
   /createComposeRule|createAndroidComposeRule|runComposeUiTest|createEmptyComposeRule/.test(source);
 
-/**
- * Each rule cites the official guidance it enforces. Rules that encode only a style preference
- * are deliberately absent.
- */
 const lineRules: readonly LineRule[] = [
   {
     rule: "v1-compose-test-api",
@@ -72,7 +67,6 @@ const lineRules: readonly LineRule[] = [
   },
 ];
 
-/** Assertion calls (MockK's coVerify and confirmVerified included, type arguments allowed) and Kotest infix matchers such as `x shouldBe y`. */
 const ASSERTION =
   /\.assert\w*\s*\(|\b(assert|verify|check|expect|ensure|should|coVerify|confirmVerified)\w*\s*(<[^>]*>\s*)?[({]|\bfail\s*\(|\.should\w*\s*\(|[\w)\]"'][ \t]+should\w*[ \t]+[\w"'([-]|\bawaitItem\s*\(|\bwaitUntil\w*\s*\(/;
 
@@ -157,11 +151,6 @@ function stripped(text: string): string {
   return blank(text);
 }
 
-/**
- * Blank comments and the contents of string and character literals, preserving their delimiters,
- * newlines and offsets, so rules only see code. Handles line comments, nested block comments,
- * and string templates. Backticked names stay whole, quotes and slashes included.
- */
 export function stripCode(source: string): string {
   let out = "";
   let last = 0;
@@ -177,7 +166,6 @@ export function stripCode(source: string): string {
   return out + source.slice(last);
 }
 
-/** `@Name`, `@org.junit.Name`, or an alias from `import ….Name as Alias`; `code` must be stripped. */
 export function annotation(code: string, name: "Test" | "Ignore"): RegExp {
   const imports = code.matchAll(
     new RegExp(`^\\s*import\\s+[\\w.]+\\.${name}\\s+as\\s+(\\w+)`, "gm"),
@@ -194,7 +182,6 @@ const continues = (source: string, at: number) => {
   return CONTINUATION.test(source);
 };
 
-/** End of an expression body: the first newline at depth zero not followed by a continuation. */
 function expressionEnd(source: string, start: number): number {
   let depth = 0;
   for (let i = start; i < source.length; i++) {
@@ -219,9 +206,7 @@ export function blockEnd(source: string, start: number): number {
   return end;
 }
 
-/** A body may start on a later line; a newline followed by anything else means no body. */
 const BODY_START = /[{=]|\n(?![ \t\r\n]*[{=])/g;
-/** One annotation, whose arguments may nest one level of parentheses: `@Config(sdk = intArrayOf(28))`. */
 export const ANNOTATION = /@[\w.]+(?:\((?:[^()]|\([^()]*\))*\))?/.source;
 const ANNOTATIONS = new RegExp(
   `((?:${ANNOTATION}\\s*)*)(?:(?:public|private|internal|override|suspend|open)\\s+)*$`,
@@ -236,7 +221,6 @@ function closeParen(code: string, from: number): number {
   return i;
 }
 
-/** Every `fun name(...)` with its body; `code` must already be stripped. */
 function functions(code: string): KotlinFunction[] {
   const newlines = offsets(code, "\n");
   const boundaries = offsets(code, "{};");
@@ -328,7 +312,6 @@ export function lintTestSource(file: string, source: string): LintFinding[] {
   return findings.toSorted((a, b) => a.line - b.line);
 }
 
-/** Names of the functions, classes or objects each @Ignore applies to. */
 export function ignoredDeclarations(source: string): string[] {
   const code = stripCode(source);
   const declaration = "[\\s\\S]*?\\b(?:fun|class|object)\\s+(?:<[^>]*>\\s*)?(`[^`]+`|\\w+)";
