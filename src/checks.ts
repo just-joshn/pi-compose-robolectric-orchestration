@@ -137,13 +137,7 @@ function skippedAtStart(run: Run, test: string): boolean {
 
 function lostCases(run: Run, last: TestRun): string[] {
   const ran = firstCases(run)
-    .filter(
-      (c) =>
-        c.status !== "skipped" &&
-        (c.name !== "classMethod" ||
-          c.status !== "failed" ||
-          run.baselineTests.includes(caseId(c))),
-    )
+    .filter((c) => c.status === "passed" || (c.status === "failed" && c.name !== "classMethod"))
     .map(caseId);
   return surplus(ran, last.cases.filter((c) => c.status === "passed").map(caseId));
 }

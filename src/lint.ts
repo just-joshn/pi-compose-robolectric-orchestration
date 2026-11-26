@@ -233,8 +233,7 @@ function functions(code: string): KotlinFunction[] {
     const typeStart = afterParams + (returnTypeStart?.[0].length ?? 0);
     BODY_START.lastIndex = typeStart;
     let start = BODY_START.exec(code)?.index ?? -1;
-    while (start >= 0 && code[start] === "\n") {
-      if (!returnTypeStart) break;
+    while (returnTypeStart && start >= 0 && code[start] === "\n") {
       const type = code.slice(typeStart, start);
       if (type.split("<").length <= type.split(">").length) break;
       start = BODY_START.exec(code)?.index ?? -1;
