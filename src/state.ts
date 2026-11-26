@@ -145,7 +145,8 @@ const isCase = (v: unknown): v is TestCase =>
   isRecord(v) &&
   hasStrings(v, ["className", "name"]) &&
   isOneOf(v["status"], ["passed", "failed", "skipped"]) &&
-  hasNumbers(v, ["seconds"]);
+  hasNumbers(v, ["seconds"]) &&
+  (v["message"] === undefined || isString(v["message"]));
 const isTestRun = (v: unknown): v is TestRun =>
   isRecord(v) &&
   hasStrings(v, ["phase", "command", "outputTail", "tree"]) &&

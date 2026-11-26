@@ -46,7 +46,6 @@ const isPendingFile = (v: unknown): v is PendingFile =>
   (v["original"] === null || isString(v["original"])) &&
   (v["written"] === null || isString(v["written"]));
 
-/** The session process that owns a pending swap. */
 interface Journal {
   readonly pid: number;
   readonly files: readonly PendingFile[];
@@ -72,7 +71,10 @@ function alive(pid: number): boolean {
   }
 }
 
-const heldElsewhere = (journal: Journal) => journal.pid !== process.pid && alive(journal.pid);
+/** Journals this process holds right now; any other journal with this pid is left from a crash. */
+const holding = new Set<string>();
+const held = (path: string, journal: Journal) =>
+  journal.pid === process.pid ? holding.has(path) : alive(journal.pid);
 
 /** Create the journal only if none exists, so two sessions can never both hold one. */
 function claim(path: string, journal: Journal) {
@@ -140,10 +142,13 @@ export async function withSwappedFiles<T>(
     original: current(swap.path)?.toString("base64") ?? null,
     written: sha(swap.content),
   }));
-  claim(join(dir, PENDING), { pid: process.pid, files });
+  const path = join(dir, PENDING);
+  claim(path, { pid: process.pid, files });
+  holding.add(path);
   const restoreAll = () => {
     const { conflicts } = restore(dir, files);
-    rmSync(join(dir, PENDING), { force: true });
+    rmSync(path, { force: true });
+    holding.delete(path);
     return conflicts;
   };
   let value: T;
@@ -159,11 +164,11 @@ export async function withSwappedFiles<T>(
   return { value, conflicts: restoreAll() };
 }
 
-/** Repair a swap whose session exited mid-run; a live session's swap is left to it. */
+/** Recover a pending swap unless a live run, in this process or another, still holds it. */
 export function recoverSwap(dir: string): { restored: string[]; conflicts: string[] } {
   const path = join(dir, PENDING);
   const journal = readJournal(path);
-  if (!journal || heldElsewhere(journal)) return { restored: [], conflicts: [] };
+  if (!journal || held(path, journal)) return { restored: [], conflicts: [] };
   const result = restore(dir, journal.files);
   rmSync(path, { force: true });
   return result;

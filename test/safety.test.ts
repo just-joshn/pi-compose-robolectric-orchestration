@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { editProblem, finalize } from "../src/checks.ts";
 import { mutate, start, type StartInput, step } from "../src/engine.ts";
-import { newRun, type TestRun } from "../src/state.ts";
+import { isRun, newRun, type TestRun } from "../src/state.ts";
 import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
 import { digest, fingerprint } from "../src/tree.ts";
 import {
@@ -23,6 +23,25 @@ import {
   workspace,
   write,
 } from "./helpers.ts";
+
+const aCase = {
+  className: "a.OtherTest",
+  name: "showsGreeting",
+  status: "passed",
+  seconds: 1,
+} as const;
+const aRun: TestRun = {
+  id: 1,
+  phase: "verify",
+  purpose: "verify",
+  command: "",
+  exitCode: 0,
+  seconds: 1,
+  outcome: "passed",
+  outputTail: "",
+  tree: "",
+  cases: [aCase],
+};
 
 describe("a corrupt baseline snapshot", () => {
   it("stops the regression check with the file named", async () => {
@@ -89,18 +108,7 @@ describe("test preservation", () => {
       targets: [{ file: TEST_FILE }, { file: other }],
     };
     const run = start(newRun("g", null), input, root).run;
-    const pass: TestRun = {
-      id: 1,
-      phase: "verify",
-      purpose: "verify",
-      command: "",
-      exitCode: 0,
-      seconds: 1,
-      outcome: "passed",
-      outputTail: "",
-      tree: digest(fingerprint(root)),
-      cases: [{ className: "a.OtherTest", name: "showsGreeting", status: "passed", seconds: 1 }],
-    };
+    const pass: TestRun = { ...aRun, tree: digest(fingerprint(root)), cases: [aCase] };
     const done = finalize({ ...run, runs: [pass] }, root);
     expect(done.statusReason).toMatch(
       /Original tests missing or not passing: a\.FooTest\.showsGreeting/,
@@ -129,6 +137,19 @@ describe("two sessions in one workspace", () => {
     expect(readFileSync(file, "utf8")).toBe("mutated by the other session");
   });
 
+  it("leaves this process's own live swap alone", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "compose-test-state-"));
+    const file = join(mkdtempSync(join(tmpdir(), "compose-test-swap-")), "A.kt");
+    writeFileSync(file, "original");
+    const swap = [{ path: file, content: Buffer.from("mutant") }];
+    const during = await withSwappedFiles(dir, swap, async () => {
+      recoverSwap(dir);
+      return readFileSync(file, "utf8");
+    });
+    expect(during.value).toBe("mutant");
+    expect(readFileSync(file, "utf8")).toBe("original");
+  });
+
   it("recovers a swap whose session has exited", () => {
     const dir = mkdtempSync(join(tmpdir(), "compose-test-state-"));
     const file = join(mkdtempSync(join(tmpdir(), "compose-test-swap-")), "A.kt");
@@ -153,5 +174,12 @@ describe("migrate case count", () => {
     const run = start(newRun("g", null), input, root).run;
     write(root, TEST_FILE, passingTest);
     expect(editProblem(run, root)).toMatch(/source has 2 @Test cases but the targets have 1/);
+  });
+});
+
+describe("restored test cases", () => {
+  it("rejects a case whose message is not text", () => {
+    const run = { ...newRun("g", null), runs: [{ ...aRun, cases: [{ ...aCase, message: 7 }] }] };
+    expect(isRun(run)).toBe(false);
   });
 });
