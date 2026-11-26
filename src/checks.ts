@@ -116,9 +116,7 @@ export const lintErrors = (cwd: string, changed: readonly string[]) =>
     .flatMap((p) => lintTestSource(p, read(cwd, p)))
     .filter((f) => f.severity === "error");
 
-/** Nested classes report as `Class$Inner`, so a case's id names its top-level class. */
 const caseId = (c: TestCase) => `${c.className.split("$")[0]}.${c.name}`;
-/** `test` is `Class.method`; a parameterized case is `method[i]`. */
 const ofTest = (id: string, test: string) => id === test || id.startsWith(`${test}[`);
 
 const passes = (r: TestRun, test: string) =>

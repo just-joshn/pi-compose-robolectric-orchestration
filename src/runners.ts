@@ -85,7 +85,6 @@ export async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
   return result(next, describeRun(r), retry);
 }
 
-/** Before a fix, record which cases exist; a flaky test may pass or fail here. */
 export async function inventory(run: Run, deps: Deps): Promise<StepResult> {
   const [next, r] = await execute(run, "inventory", deps);
   if (r.outcome === "passed" || r.outcome === "failed")

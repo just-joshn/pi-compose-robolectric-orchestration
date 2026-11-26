@@ -228,7 +228,6 @@ const initScript = (task: string, timing: string) => `allprojects {
 }
 `;
 
-/** The module's test task time, or null when Gradle wrote no valid time. */
 function takeTestSeconds(timing: string): number | null {
   const text = existsSync(timing) ? readFileSync(timing, "utf8") : "";
   rmSync(timing, { force: true });
