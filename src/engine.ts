@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 
 import {
   baselineContent,
@@ -55,20 +55,27 @@ export interface StartInput {
   readonly source?: string;
 }
 
-function confine(cwd: string, file: string) {
+/** The path in the normal form reads and changes use; refuses absolute and outside paths. */
+function confine(cwd: string, file: string): string {
   if (isAbsolute(file)) reject(`${file} must be relative to the workspace root.`);
   if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
+  return normalize(file);
 }
 
-function validateStart(run: Run, input: StartInput, cwd: string) {
-  const workflow = workflows[input.workflow];
-  const runsTests = input.workflow !== "review";
+function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
+  const workflow = workflows[raw.workflow];
+  const runsTests = raw.workflow !== "review";
   if (run.status !== "routing") reject("A workflow is already running.");
-  if (run.forcedWorkflow && run.forcedWorkflow !== input.workflow)
+  if (run.forcedWorkflow && run.forcedWorkflow !== raw.workflow)
     reject(`The operator selected the ${run.forcedWorkflow} workflow. Start that one.`);
-  if (input.targets.length === 0) reject("Name at least one target file.");
-  const paths = [...input.targets.map((t) => t.file), ...(input.subject ?? []), input.source ?? ""];
-  for (const file of paths.filter(Boolean)) confine(cwd, file);
+  if (raw.targets.length === 0) reject("Name at least one target file.");
+  const own = (file: string) => confine(cwd, file);
+  const input: StartInput = {
+    ...raw,
+    targets: raw.targets.map((t) => ({ ...t, file: own(t.file) })),
+    ...(raw.subject ? { subject: raw.subject.map(own) } : {}),
+    ...(raw.source ? { source: own(raw.source) } : {}),
+  };
   for (const { file } of input.targets) {
     if (runsTests && !/(^|\/)src\/test[A-Za-z0-9]*\/.*\.kt$/.test(file))
       reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
@@ -84,10 +91,11 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
   if (input.workflow === "migrate" && !androidTest)
     reject("migrate needs source: an existing androidTest .kt file.");
   if (input.workflow !== "migrate" && source) reject("source is only for migrate.");
+  return input;
 }
 
-export function start(run: Run, input: StartInput, cwd: string, dir = stateDir(cwd)): StepResult {
-  validateStart(run, input, cwd);
+export function start(run: Run, raw: StartInput, cwd: string, dir = stateDir(cwd)): StepResult {
+  const input = parseStart(run, raw, cwd);
   const baseline = fingerprint(cwd);
   const started = revise(run, {
     status: "active",
@@ -297,11 +305,11 @@ export interface MutationInput {
   readonly replace: string;
 }
 
-export async function mutate(run: Run, input: MutationInput, deps: Deps): Promise<StepResult> {
+export async function mutate(run: Run, raw: MutationInput, deps: Deps): Promise<StepResult> {
   const kind = currentPhase(run)?.kind;
   if (kind !== "mutation" && kind !== "regression")
     reject(`Not in a negative-control phase. ${nextStep(run)}`);
-  confine(deps.cwd, input.file);
+  const input = { ...raw, file: confine(deps.cwd, raw.file) };
   if (categorize(input.file) !== "production")
     reject(`${input.file} is not production source; mutate the code under test.`);
   if (run.subject.length && !run.subject.includes(input.file))
@@ -358,9 +366,9 @@ async function regressionCheck(run: Run, deps: Deps): Promise<StepResult> {
 const key = (f: Omit<Finding, "source">) => [f.file, f.line, f.rule, f.message].join("\0");
 const ranNothing = (r: TestRun) => r.outcome === "build-error" || r.outcome === "no-tests";
 
-export function addFinding(run: Run, finding: Omit<Finding, "source">, cwd: string): StepResult {
+export function addFinding(run: Run, raw: Omit<Finding, "source">, cwd: string): StepResult {
   if (currentPhase(run)?.kind !== "findings") reject(`Not in a review phase. ${nextStep(run)}`);
-  confine(cwd, finding.file);
+  const finding = { ...raw, file: confine(cwd, raw.file) };
   if (!existsSync(join(cwd, finding.file))) reject(`${finding.file} does not exist.`);
   const lines = read(cwd, finding.file).split("\n").length;
   if (finding.line > lines)
