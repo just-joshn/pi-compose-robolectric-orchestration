@@ -100,9 +100,11 @@ function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
     ...(raw.subject ? { subject: raw.subject.map(own) } : {}),
     ...(raw.source ? { source: own(raw.source) } : {}),
   };
-  for (const file of input.subject ?? [])
+  for (const file of input.subject ?? []) {
     if (categorize(file) !== "production" || !existsSync(join(cwd, file)))
       reject(`Subject ${file} is not an existing production source file.`);
+    if (notFile(cwd, file)) reject(`Subject ${file} is not a file.`);
+  }
   const source = input.source ?? "";
   const androidTest =
     /(^|\/)src\/androidTest\/.*\.kt$/.test(source) && existsSync(join(cwd, source));

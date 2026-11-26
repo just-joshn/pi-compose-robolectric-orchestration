@@ -66,4 +66,16 @@ describe("directory paths", () => {
     } as const;
     expect(() => addFinding(run, finding, root)).toThrow(/is not a file/);
   });
+
+  it("are refused as subjects, since a negative control mutates a file", () => {
+    const root = workspace();
+    const input: StartInput = {
+      workflow: "write-test",
+      targets: [{ file: TEST_FILE }],
+      subject: ["app/src/main/java/a"],
+    };
+    expect(() => start(newRun("g", null), input, root)).toThrow(
+      "Subject app/src/main/java/a is not a file.",
+    );
+  });
 });
