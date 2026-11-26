@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 
-import { annotation, blockEnd, stripCode, testFunctions } from "./lint.ts";
+import { ANNOTATION, annotation, blockEnd, stripCode, testFunctions } from "./lint.ts";
 import { inside } from "./paths.ts";
 import { atomicWrite } from "./swap.ts";
 
@@ -73,8 +73,10 @@ export interface TestClass {
   readonly tests: readonly string[];
 }
 
-const DECLARATION =
-  /^[ \t]*((?:@[\w.]+(?:\([^)]*\))?\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*)(?:class|object)\s+(\w+)/gm;
+const DECLARATION = new RegExp(
+  `^[ \\t]*((?:${ANNOTATION}\\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\\s+)*)(?:class|object)\\s+(\\w+)`,
+  "gm",
+);
 
 function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], ignore: RegExp) {
   const bodies = declarations.flatMap((m, i) => {

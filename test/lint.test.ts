@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { testClasses } from "../src/gradle.ts";
 import { ignoredDeclarations, lintTestSource, testFunctions } from "../src/lint.ts";
 
 describe("Kotlin functions whose body starts on the next line", () => {
@@ -43,6 +44,32 @@ describe("Kotlin the scanner must read like the compiler", () => {
     const source =
       "class T {\n  fun `check [thing]`() { assert(true) }\n  @Test fun test() { `check [thing]`() }\n}";
     expect(lintTestSource("app/src/test/T.kt", source)).toEqual([]);
+  });
+});
+
+describe("an annotation whose arguments hold parentheses", () => {
+  const source = `package a
+class FooTest {
+  @Test fun plain() { assertEquals(1, 1) }
+  @Test
+  @Config(sdk = intArrayOf(28))
+  fun onP() { assertEquals(1, 1) }
+}
+@Ignore
+@Config(sdk = intArrayOf(28))
+class SkippedTest {
+  @Test fun skipped() { assertEquals(1, 1) }
+}
+`;
+
+  it("does not hide the @Test before it", () => {
+    expect(testFunctions(source).map((t) => t.name)).toEqual(["plain", "onP", "skipped"]);
+  });
+
+  it("does not hide the @Ignore before it", () => {
+    expect(testClasses(source, "FooTest.kt")).toEqual([
+      { name: "a.FooTest", tests: ["plain", "onP"] },
+    ]);
   });
 });
 
