@@ -44,10 +44,7 @@ const message = (customType: string, content: string): SessionBoundaryDraft => (
   display: true,
 });
 
-export default function composeTest(pi: ExtensionAPI) {
-  const session = new Session(pi);
-  registerTools(pi, session);
-
+function registerRestore(pi: ExtensionAPI, session: Session) {
   const restore = async (_event: unknown, ctx: ExtensionContext) => {
     try {
       const { restored, conflicts } = recoverSwap(stateDir(ctx.cwd));
@@ -63,7 +60,19 @@ export default function composeTest(pi: ExtensionAPI) {
   };
   pi.on("session_start", restore);
   pi.on("session_tree", restore);
+}
 
+/** `status` and `cancel`, or undefined when the arguments start a new run. */
+function control(session: Session, first: string): string | undefined {
+  const run = session.run;
+  if (!first || first === "status")
+    return run ? report(run) : `No compose-test run. Workflows: ${workflowIds.join(", ")}`;
+  if (first !== "cancel") return undefined;
+  if (!run || terminal(run.status)) return "No active compose-test run.";
+  return report(session.set(finish(run, "incomplete", "Cancelled by the operator.")));
+}
+
+function registerCommand(pi: ExtensionAPI, session: Session) {
   pi.registerCommand("compose-test", {
     description: "Run a Compose + Robolectric test workflow: /compose-test [workflow] <goal>",
     getArgumentCompletions: (prefix) => {
@@ -74,22 +83,12 @@ export default function composeTest(pi: ExtensionAPI) {
     },
     handler: async (args, ctx) => {
       const [first = "", ...rest] = args.trim().split(/\s+/);
-      const run = session.run;
-      if (!first || first === "status")
-        return say(
-          ctx,
-          run ? report(run) : `No compose-test run. Workflows: ${workflowIds.join(", ")}`,
-        );
-      if (first === "cancel")
-        return say(
-          ctx,
-          run && !terminal(run.status)
-            ? report(session.set(finish(run, "incomplete", "Cancelled by the operator.")))
-            : "No active compose-test run.",
-        );
+      const answer = control(session, first);
+      if (answer !== undefined) return say(ctx, answer);
       const forced = isWorkflowId(first) ? first : null;
       const goal = forced ? rest.join(" ") : args.trim();
       if (!goal) return say(ctx, "Describe the goal after the workflow name.");
+      const run = session.run;
       if (run && !terminal(run.status))
         session.set(finish(run, "incomplete", "Superseded by a new request."));
       session.set(newRun(goal, forced));
@@ -99,7 +98,9 @@ export default function composeTest(pi: ExtensionAPI) {
       await ctx.waitForIdle();
     },
   });
+}
 
+function registerToolGates(pi: ExtensionAPI, session: Session) {
   pi.on("tool_call", async (event, ctx) => {
     const run = session.run;
     if (!run || terminal(run.status) || (event.toolName !== "edit" && event.toolName !== "write"))
@@ -114,54 +115,60 @@ export default function composeTest(pi: ExtensionAPI) {
     const path = relative(ctx.cwd, resolve(ctx.cwd, pathOf(event.input)));
     if (!run.reads.includes(path)) session.set({ ...run, reads: [...run.reads, path] });
   });
+}
 
-  /**
-   * The last point before Pi goes idle: re-check VERIFIED, post the terminal status once, or send
-   * an unfinished run back to work. Fails closed if anything throws.
-   */
+/**
+ * Decide what happens when the agent stops: re-check VERIFIED, post a terminal status once, end a
+ * run that keeps stopping without progress, or return the continuation message.
+ */
+function settle(session: Session, cwd: string): { status: string } | { gate: string } | undefined {
+  let run = session.run;
+  if (!run) return undefined;
+  if (run.status === "verified" && run.reported !== run.revision)
+    run = session.set(recheck(run, cwd));
+  if (terminal(run.status)) {
+    if (run.reported === run.revision) return undefined;
+    session.set({ ...run, reported: run.revision });
+    return { status: report(run) };
+  }
+  run = session.set({ ...run, nudges: run.nudges + 1 });
+  if (run.nudges > MAX_NUDGES) {
+    const reason = `The agent stopped ${MAX_NUDGES + 1} times without progress. ${nextStep(run)}`;
+    const ended = finish(run, "incomplete", reason);
+    session.set({ ...ended, reported: ended.revision });
+    return { status: report(ended) };
+  }
+  const next =
+    run.status === "routing"
+      ? "Call compose_test_start with the workflow and targets."
+      : nextStep(run);
+  return { gate: `compose-test is not finished, so do not report completion. ${next}` };
+}
+
+/** The last point before Pi goes idle. Fails closed: an error continues the run. */
+function registerSettle(pi: ExtensionAPI, session: Session) {
   pi.on("agent_before_settle", async (event, ctx) => {
-    let run = session.run;
-    if (!run) return undefined;
     try {
-      if (run.status === "verified" && run.reported !== run.revision)
-        run = session.set(recheck(run, ctx.cwd));
-      if (terminal(run.status)) {
-        if (run.reported === run.revision) return undefined;
-        session.set({ ...run, reported: run.revision });
-        return { entries: [...event.entries, message("compose-test-status", report(run))] };
-      }
-      run = session.set({ ...run, nudges: run.nudges + 1 });
-      if (run.nudges > MAX_NUDGES) {
-        const ended = finish(
-          run,
-          "incomplete",
-          `The agent stopped ${MAX_NUDGES + 1} times without progress. ${nextStep(run)}`,
-        );
-        session.set({ ...ended, reported: ended.revision });
-        return { entries: [...event.entries, message("compose-test-status", report(ended))] };
-      }
-    } catch (error) {
+      const decision = settle(session, ctx.cwd);
+      if (!decision) return undefined;
+      if ("status" in decision)
+        return { entries: [...event.entries, message("compose-test-status", decision.status)] };
       return {
-        entries: [
-          ...event.entries,
-          message("compose-test-gate", `compose-test gate error: ${String(error)}`),
-        ],
+        entries: [...event.entries, message("compose-test-gate", decision.gate)],
         continue: true,
       };
+    } catch (error) {
+      const gate = `compose-test gate error: ${String(error)}`;
+      return { entries: [...event.entries, message("compose-test-gate", gate)], continue: true };
     }
-    const next =
-      run.status === "routing"
-        ? "Call compose_test_start with the workflow and targets."
-        : nextStep(run);
-    return {
-      entries: [
-        ...event.entries,
-        message(
-          "compose-test-gate",
-          `compose-test is not finished, so do not report completion. ${next}`,
-        ),
-      ],
-      continue: true,
-    };
   });
+}
+
+export default function composeTest(pi: ExtensionAPI) {
+  const session = new Session(pi);
+  registerTools(pi, session);
+  registerRestore(pi, session);
+  registerCommand(pi, session);
+  registerToolGates(pi, session);
+  registerSettle(pi, session);
 }

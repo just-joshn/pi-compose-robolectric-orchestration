@@ -19,6 +19,11 @@ import { skillDir, type WorkflowId, workflowIds, workflows } from "./workflows.t
 
 export const STATE_ENTRY = "compose-test-state";
 
+const reply = (run: Run, message: string) => ({
+  content: [{ type: "text" as const, text: message }],
+  details: { status: run.status, workflow: run.workflow, phase: currentPhase(run)?.id ?? null },
+});
+
 /** The run for the current session branch. Every change is persisted as a session entry. */
 export class Session {
   private current: Run | null = null;
@@ -54,6 +59,31 @@ export class Session {
     return next;
   }
 
+  require(): Run {
+    if (this.current) return this.current;
+    throw new WorkflowError(
+      "No compose-test request is active. The operator starts one with /compose-test.",
+    );
+  }
+
+  respond(result: StepResult) {
+    return reply(this.set(result.run), result.message);
+  }
+
+  /** Run serialized work; keep its result only if nothing (such as a cancel) changed the run meanwhile. */
+  commit(work: (run: Run) => Promise<StepResult>) {
+    return this.exclusive(async () => {
+      const before = this.require();
+      const result = await work(before);
+      const now = this.require();
+      if (now.revision === before.revision) return this.respond(result);
+      return reply(
+        now,
+        `Discarded: the run changed while this ran (now ${now.status}).\n${result.message}`,
+      );
+    });
+  }
+
   deps(ctx: ExtensionContext, signal?: AbortSignal): Deps {
     return {
       cwd: ctx.cwd,
@@ -71,34 +101,7 @@ export class Session {
   }
 }
 
-const reply = (run: Run, message: string) => ({
-  content: [{ type: "text" as const, text: message }],
-  details: { status: run.status, workflow: run.workflow, phase: currentPhase(run)?.id ?? null },
-});
-
-export function registerTools(pi: ExtensionAPI, session: Session) {
-  const current = () =>
-    session.run ??
-    (() => {
-      throw new WorkflowError(
-        "No compose-test request is active. The operator starts one with /compose-test.",
-      );
-    })();
-  const respond = (result: StepResult) => reply(session.set(result.run), result.message);
-  /** Long runs keep their result only if nothing (such as a cancel) changed the run meanwhile. */
-  const exclusive = (work: (run: Run) => Promise<StepResult>) =>
-    session.exclusive(async () => {
-      const before = current();
-      const result = await work(before);
-      const now = session.run;
-      if (now && now.revision !== before.revision)
-        return reply(
-          now,
-          `Discarded: the run changed while this ran (now ${now.status}).\n${result.message}`,
-        );
-      return respond(result);
-    });
-
+function registerStart(pi: ExtensionAPI, session: Session) {
   pi.registerTool({
     name: "compose_test_start",
     label: "Start compose-test workflow",
@@ -116,18 +119,23 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       source: Type.Optional(Type.String({ description: "migrate only: the androidTest file" })),
     }),
     async execute(_id, { workflow, targets, subject, source }, _signal, _update, ctx) {
-      const result = start(
-        current(),
-        { workflow, targets, ...(subject ? { subject } : {}), ...(source ? { source } : {}) },
-        ctx.cwd,
-      );
-      const refs = workflows[workflow].references
-        .map((f) => join(skillDir, "references", f))
-        .join("\n");
-      return respond({ ...result, message: `${result.message}\nReferences:\n${refs}` });
+      const input = {
+        workflow,
+        targets,
+        ...(subject ? { subject } : {}),
+        ...(source ? { source } : {}),
+      };
+      const result = start(session.require(), input, ctx.cwd);
+      const refs = workflows[workflow].references.map((f) => join(skillDir, "references", f));
+      return session.respond({
+        ...result,
+        message: `${result.message}\nReferences:\n${refs.join("\n")}`,
+      });
     },
   });
+}
 
+function registerPhaseTools(pi: ExtensionAPI, session: Session) {
   pi.registerTool({
     name: "compose_test_step",
     label: "Complete compose-test phase",
@@ -135,9 +143,8 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       "Complete the current phase. For test-running phases the extension runs Gradle and decides the outcome.",
     parameters: Type.Object({}),
     execute: (_id, _params, signal, _update, ctx) =>
-      exclusive((run) => step(run, session.deps(ctx, signal))),
+      session.commit((run) => step(run, session.deps(ctx, signal))),
   });
-
   pi.registerTool({
     name: "compose_test_mutate",
     label: "Negative control",
@@ -145,9 +152,11 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       "Temporarily replace `find` (exactly one match) with `replace` in a production file, run the targets, restore the file. The tests must fail.",
     parameters: Type.Object({ file: Type.String(), find: Type.String(), replace: Type.String() }),
     execute: (_id, params, signal, _update, ctx) =>
-      exclusive((run) => mutate(run, params, session.deps(ctx, signal))),
+      session.commit((run) => mutate(run, params, session.deps(ctx, signal))),
   });
+}
 
+function registerRecordTools(pi: ExtensionAPI, session: Session) {
   pi.registerTool({
     name: "compose_test_finding",
     label: "Record finding",
@@ -160,9 +169,8 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       message: Type.String(),
     }),
     execute: (_id, params, _signal, _update, ctx) =>
-      exclusive(async (run) => addFinding(run, params, ctx.cwd)),
+      session.commit(async (run) => addFinding(run, params, ctx.cwd)),
   });
-
   pi.registerTool({
     name: "compose_test_block",
     label: "Report blocker",
@@ -170,7 +178,13 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       "End the workflow as BLOCKED. Allowed only when the two most recent extension runs executed no tests (broken build, offline).",
     parameters: Type.Object({ reason: Type.String() }),
     async execute(_id, { reason }) {
-      return respond(block(current(), reason));
+      return session.respond(block(session.require(), reason));
     },
   });
+}
+
+export function registerTools(pi: ExtensionAPI, session: Session) {
+  registerStart(pi, session);
+  registerPhaseTools(pi, session);
+  registerRecordTools(pi, session);
 }

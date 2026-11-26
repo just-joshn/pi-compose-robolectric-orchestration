@@ -27,7 +27,14 @@ import {
 } from "./state.ts";
 import { stateDir, withSwappedFiles } from "./swap.ts";
 import { digest, fingerprint } from "./tree.ts";
-import { categorize, isSource, type WorkflowId, workflows } from "./workflows.ts";
+import {
+  categorize,
+  isSource,
+  type Phase,
+  type PhaseKind,
+  type WorkflowId,
+  workflows,
+} from "./workflows.ts";
 
 export interface Deps {
   readonly cwd: string;
@@ -49,7 +56,6 @@ const reject = (message: string): never => {
 const STRESS_RUNS = 5;
 const MEASURE_RUNS = 3;
 const MIN_SPEEDUP = 0.05;
-const MODEL_KINDS = new Set(["edit", "findings", "mutation"]);
 
 export function nextStep(run: Run): string {
   const phase = currentPhase(run);
@@ -202,59 +208,57 @@ async function repeat(run: Run, purpose: Purpose, times: number, deps: Deps) {
   return { run: current, recorded };
 }
 
-/** Run one extension-owned phase. */
-async function runPhase(run: Run, deps: Deps): Promise<StepResult> {
-  const phase = currentPhase(run);
+async function verify(run: Run, deps: Deps): Promise<StepResult> {
+  const [next, r] = await execute(run, "verify", deps);
+  if (r.outcome === "passed") return { run: advance(next), message: describeRun(r) };
+  const reason =
+    run.phaseIndex === 0
+      ? "The tests fail before any change. This workflow needs a passing baseline; fix the failures first (fix-failing)."
+      : `Verification ${r.outcome}.`;
+  return { run: backtrack(next, reason), message: `${describeRun(r)}\n${reason}` };
+}
+
+async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
+  const [next, r] = await execute(run, "reproduce", deps);
+  if (r.outcome === "failed" || r.outcome === "build-error")
+    return { run: advance(next), message: `Reproduced.\n${describeRun(r)}` };
+  if (next.runs.filter((x) => x.purpose === "reproduce").length >= 2)
+    return {
+      run: finish(next, "blocked", "The failure does not reproduce locally."),
+      message: describeRun(r),
+    };
+  return {
+    run: next,
+    message: `${describeRun(r)}\nDid not reproduce. Check the target and method, then call compose_test_step again.`,
+  };
+}
+
+async function stress(run: Run, deps: Deps): Promise<StepResult> {
+  const { run: next, recorded } = await repeat(run, "stress", STRESS_RUNS, deps);
+  const bad = recorded.filter((r) => r.outcome !== "passed");
+  if (bad.length === 0)
+    return { run: advance(next), message: `All ${STRESS_RUNS} stress runs passed.` };
+  const reason = `${bad.length}/${recorded.length} stress runs did not pass.`;
+  return { run: backtrack(next, reason), message: `${reason}\n${bad.map(describeRun).join("\n")}` };
+}
+
+type Runner = (run: Run, deps: Deps, phase: Phase) => Promise<StepResult>;
+
+/** The phases the extension executes itself; every other kind waits for the model. */
+const RUNNERS: Partial<Record<PhaseKind, Runner>> = {
+  verify,
+  reproduce,
+  stress,
+  measure: (run, deps, phase) => measure(run, phase.id, deps),
+  regression: (run, deps) => regressionCheck(run, deps),
+};
+
+/** Run one extension-owned phase after checking that nothing out of scope changed. */
+async function runPhase(run: Run, phase: Phase, runner: Runner, deps: Deps): Promise<StepResult> {
   const violations = scopeViolations(run, deps.cwd);
-  if (violations.length) {
-    const reason = `Out-of-scope changes: ${violations.join(", ")}. Revert them.`;
-    return { run: backtrack(run, reason), message: reason };
-  }
-  switch (phase?.kind) {
-    case "verify": {
-      const [next, r] = await execute(run, "verify", deps);
-      if (r.outcome === "passed") return { run: advance(next), message: describeRun(r) };
-      const reason =
-        run.phaseIndex === 0
-          ? "The tests fail before any change. This workflow needs a passing baseline; fix the failures first (fix-failing)."
-          : `Verification ${r.outcome}.`;
-      return { run: backtrack(next, reason), message: `${describeRun(r)}\n${reason}` };
-    }
-    case "reproduce": {
-      const [next, r] = await execute(run, "reproduce", deps);
-      if (r.outcome === "failed" || r.outcome === "build-error")
-        return { run: advance(next), message: `Reproduced.\n${describeRun(r)}` };
-      if (next.runs.filter((x) => x.purpose === "reproduce").length >= 2)
-        return {
-          run: finish(next, "blocked", "The failure does not reproduce locally."),
-          message: describeRun(r),
-        };
-      return {
-        run: next,
-        message: `${describeRun(r)}\nDid not reproduce. Check the target and method, then call compose_test_step again.`,
-      };
-    }
-    case "stress": {
-      const { run: next, recorded } = await repeat(run, "stress", STRESS_RUNS, deps);
-      const bad = recorded.filter((r) => r.outcome !== "passed");
-      if (bad.length === 0)
-        return { run: advance(next), message: `All ${STRESS_RUNS} stress runs passed.` };
-      const reason = `${bad.length}/${recorded.length} stress runs did not pass.`;
-      return {
-        run: backtrack(next, reason),
-        message: `${reason}\n${bad.map(describeRun).join("\n")}`,
-      };
-    }
-    case "measure":
-      return measure(run, phase.id, deps);
-    case "regression":
-      return regressionCheck(run, deps);
-    case undefined:
-    case "edit":
-    case "findings":
-    case "mutation":
-      return { run, message: nextStep(run) };
-  }
+  if (violations.length === 0) return runner(run, deps, phase);
+  const reason = `Out-of-scope changes: ${violations.join(", ")}. Revert them.`;
+  return { run: backtrack(run, reason), message: reason };
 }
 
 async function measure(run: Run, phaseId: string, deps: Deps): Promise<StepResult> {
@@ -299,13 +303,12 @@ export async function step(run: Run, deps: Deps): Promise<StepResult> {
         ? completeFindings(run, deps)
         : run;
   const messages: string[] = [];
-  for (
-    let next = currentPhase(current);
-    next && !MODEL_KINDS.has(next.kind) && !deps.signal?.aborted;
-    next = currentPhase(current)
-  ) {
+  for (;;) {
+    const next = currentPhase(current);
+    const runner = next && RUNNERS[next.kind];
+    if (!next || !runner || deps.signal?.aborted) break;
     const before = current.phaseIndex;
-    const result = await runPhase(current, deps);
+    const result = await runPhase(current, next, runner, deps);
     current = result.run;
     messages.push(result.message);
     if (current.phaseIndex <= before) break;
