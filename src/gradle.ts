@@ -263,12 +263,19 @@ function invocation(
   };
 }
 
-/** Gradle invocations share the project's build lock, so they run one after another. */
+/**
+ * Gradle invocations share the project's build lock, so they run one after another. An aborted
+ * run was killed partway, so it is cancelled rather than read as results.
+ */
 async function inOrder(
   exec: Exec,
   invocations: readonly Invocation[],
   options: { timeoutMs: number; signal?: AbortSignal },
 ): Promise<Awaited<ReturnType<Exec>>[]> {
+  if (options.signal?.aborted)
+    throw new Error("Gradle run cancelled; it is not recorded as evidence.", {
+      cause: options.signal.reason,
+    });
   const [first, ...rest] = invocations;
   if (!first) return [];
   const result = await exec(first.gradle, first.args, { ...options, cwd: first.root });

@@ -3,8 +3,10 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { step } from "../src/engine.ts";
 import { type Exec, gradleConfig, parseJUnitXml, runTargets, testClasses } from "../src/gradle.ts";
 import {
+  begin,
   deps,
   fakeGradle,
   passingTest,
@@ -316,5 +318,27 @@ describe("a module with a child project inside its directory", () => {
         : { code: 1, stdout: "> Task :app:sub:test FAILED", stderr: "No tests found" };
     };
     expect((await runTargets(deps(root, exec), [fooTarget])).outcome).toBe("passed");
+  });
+});
+
+/** Like pi.exec: an abort during the run kills Gradle, which exits 143 without results. */
+function abortedRun() {
+  const controller = new AbortController();
+  const exec: Exec = async () => {
+    controller.abort();
+    return { code: 143, stdout: "", stderr: "" };
+  };
+  return { exec, signal: controller.signal };
+}
+
+describe("a run the operator aborts", () => {
+  it("is never read as test evidence", async () => {
+    const root = workspace();
+    const gradle = abortedRun();
+    await expect(
+      runTargets({ ...deps(root, gradle.exec), signal: gradle.signal }, [fooTarget]),
+    ).rejects.toThrow(/cancelled/);
+    const { run, d } = begin(root, { workflow: "fix-failing" });
+    await expect(step(run, { ...d, ...abortedRun() })).rejects.toThrow(/cancelled/);
   });
 });
