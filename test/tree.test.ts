@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +13,16 @@ const gitAs = (cwd: string, ...args: string[]) =>
     cwd,
     stdio: "ignore",
   });
+
+it("detects executable mode changes to a tracked file", () => {
+  const root = workspace();
+  write(root, "gradlew", "#!/bin/sh\nexit 0\n");
+  gitAs(root, "add", "gradlew");
+  commit(root, "add wrapper");
+  const before = fingerprint(root);
+  chmodSync(join(root, "gradlew"), 0o755);
+  expect(changedPaths(root, before, fingerprint(root))).toContain("gradlew");
+});
 
 describe("a git submodule", () => {
   it("shows a change to a file inside it", () => {

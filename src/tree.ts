@@ -23,7 +23,9 @@ function hashFile(path: string): string {
   if (stat?.isSymbolicLink()) return `link:${sha(readlinkSync(path))}`;
   // Git status lists a submodule or nested repository as one directory entry.
   if (stat?.isDirectory()) return `dir:${digest(fingerprint(path))}`;
-  return stat?.isFile() ? sha(readFileSync(path)) : "deleted";
+  return stat?.isFile()
+    ? `${stat.mode & 0o111 ? "100755" : "100644"}:${sha(readFileSync(path))}`
+    : "deleted";
 }
 
 function git(cwd: string, args: readonly string[]) {
@@ -101,7 +103,9 @@ function contentAt(cwd: string, fp: Fingerprint, path: string): string {
   const own = fp.files[path];
   if (own !== undefined || !fp.head) return own ?? "deleted";
   const content = committed(cwd, fp.head, path);
-  return content ? sha(content) : "deleted";
+  if (!content) return "deleted";
+  const mode = git(cwd, ["ls-tree", fp.head, "--", `./${path}`])?.slice(0, 6);
+  return mode === "120000" ? `link:${sha(content)}` : `${mode}:${sha(content)}`;
 }
 
 export function changedPaths(cwd: string, a: Fingerprint, b: Fingerprint): string[] {
