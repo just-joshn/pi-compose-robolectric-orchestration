@@ -152,8 +152,11 @@ const attribute = (tag: string, name: string) =>
     .replaceAll("&#10;", "\n")
     .replaceAll("&amp;", "&");
 
+const FAILED_ATTEMPT =
+  /<(?:failure|error|flakyFailure|flakyError|rerunFailure|rerunError)\b([^>]*)/;
+
 function parseCase(tag: string, body: string): TestCase {
-  const failure = /<(?:failure|error)\b([^>]*)/.exec(body);
+  const failure = FAILED_ATTEMPT.exec(body);
   const testCase: TestCase = {
     className: attribute(tag, "classname") ?? "",
     name: attribute(tag, "name") ?? "",
