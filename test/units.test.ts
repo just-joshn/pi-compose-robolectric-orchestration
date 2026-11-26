@@ -31,6 +31,8 @@ describe("path categories", () => {
     ["app/src/main/java/A.kt", "production"],
     ["app/build.gradle.kts", "build"],
     ["gradle/libs.versions.toml", "build"],
+    ["secret.gradle.kts", "build"],
+    ["buildSrc/src/main/kotlin/Conventions.kt", "build"],
     ["README.md", "other"],
   ])("%s is %s", (path, category) => expect(categorize(path)).toBe(category));
 });
