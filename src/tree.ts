@@ -23,6 +23,8 @@ const sha = (data: Buffer | string) => sha256(data).slice(0, 16);
 function hashFile(path: string): string {
   const stat = lstatSync(path, { throwIfNoEntry: false });
   if (stat?.isSymbolicLink()) return `link:${sha(readlinkSync(path))}`;
+  // Git status lists a submodule or nested repository as one directory entry.
+  if (stat?.isDirectory()) return `dir:${digest(fingerprint(path))}`;
   return stat?.isFile() ? sha(readFileSync(path)) : "deleted";
 }
 
