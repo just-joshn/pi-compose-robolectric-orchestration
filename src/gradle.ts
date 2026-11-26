@@ -292,8 +292,9 @@ export async function runTargets(
   const initScript = join(dir, "compose-test.init.gradle");
   atomicWrite(initScript, INIT_SCRIPT);
   const started = Date.now();
-  const keys = new Set(resolved.map((t) => `${t.root}\0${t.module}`));
-  const invocations = [...keys].map((key) =>
+  // `-p <module>` reruns, and so clears, child projects' tests. Sorted, a module runs before its children.
+  const keys = [...new Set(resolved.map((t) => `${t.root}\0${t.module}`))].toSorted();
+  const invocations = keys.map((key) =>
     invocation(
       resolved.filter((t) => `${t.root}\0${t.module}` === key),
       config,

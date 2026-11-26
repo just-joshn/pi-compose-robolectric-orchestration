@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -318,6 +318,29 @@ describe("a module with a child project inside its directory", () => {
         : { code: 1, stdout: "> Task :app:sub:test FAILED", stderr: "No tests found" };
     };
     expect((await runTargets(deps(root, exec), [fooTarget])).outcome).toBe("passed");
+  });
+
+  it("keeps the child's results when the child target is listed first", async () => {
+    const root = workspace();
+    write(root, "settings.gradle.kts", 'include(":app", ":app:sub")\n');
+    const sub = "app/sub/src/test/java/b/SubTest.kt";
+    write(root, sub, "package b\nclass SubTest {\n  @Test fun works() { assert(true) }\n}\n");
+    const subResults = "app/sub/build/test-results/testDebugUnitTest";
+    /** Like Gradle: -p app also reruns :app:sub's test task, which clears the child's results. */
+    const exec: Exec = async (_c, args) => {
+      rmSync(join(root, subResults), { recursive: true, force: true });
+      if (args.includes("app/sub"))
+        write(
+          root,
+          `${subResults}/TEST-b.SubTest.xml`,
+          '<testcase name="works" classname="b.SubTest"/>',
+        );
+      else write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest"/>');
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const result = await runTargets(deps(root, exec), [{ file: sub }, fooTarget]);
+    expect(result.outcome).toBe("passed");
+    expect(result.cases.map((c) => c.name)).toEqual(["works", "showsGreeting"]);
   });
 });
 
