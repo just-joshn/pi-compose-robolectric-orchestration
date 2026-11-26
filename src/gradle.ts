@@ -35,6 +35,8 @@ export interface Execution {
   readonly outcome: Outcome;
   readonly cases: readonly TestCase[];
   readonly seconds: number;
+  /** Test task time from Gradle's test listener; unlike JUnit XML times it includes class setup. */
+  readonly testSeconds: number;
   readonly outputTail: string;
 }
 
@@ -168,8 +170,11 @@ export const parseJUnitXml = (xml: string): TestCase[] =>
       .matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g),
   ].map(([, tag = "", body = ""]) => parseCase(tag, body));
 
+const resultsDir = (module: string, task: string) => join(module, "build", "test-results", task);
+const TIMING = "compose-test-time.txt";
+
 function reports(target: Resolved, task: string): string[] {
-  const dir = join(target.module, "build", "test-results", task);
+  const dir = resultsDir(target.module, task);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter(
@@ -199,11 +204,30 @@ interface Invocation {
   readonly args: readonly string[];
 }
 
-/** `-p <module>` also runs the task in child projects, whose tests never match the filters. */
+/**
+ * `-p <module>` also runs the task in child projects, whose tests never match the filters. The
+ * root suite's time spans every test class, class-level setup included.
+ */
 const INIT_SCRIPT = `allprojects {
-  tasks.withType(Test).configureEach { filter.failOnNoMatchingTests = false }
+  tasks.withType(Test).configureEach { task ->
+    filter.failOnNoMatchingTests = false
+    def results = task.reports.junitXml.outputLocation
+    afterSuite { suite, result ->
+      if (suite.parent == null) {
+        def file = new File(results.get().asFile, "${TIMING}")
+        file.parentFile.mkdirs()
+        file.text = String.valueOf(result.endTime - result.startTime)
+      }
+    }
+  }
 }
 `;
+
+function testTaskSeconds(module: string, task: string): number {
+  const file = join(resultsDir(module, task), TIMING);
+  const ms = existsSync(file) ? Number(readFileSync(file, "utf8")) : 0;
+  return Number.isFinite(ms) ? ms / 1000 : 0;
+}
 
 function invocation(
   group: readonly Resolved[],
@@ -212,8 +236,10 @@ function invocation(
 ): Invocation {
   const root = group[0]?.root ?? "";
   // Gradle maps the module directory to its project, which may sit at a different path.
-  const moduleDir = relative(root, group[0]?.module ?? root) || ".";
-  for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
+  const module = group[0]?.module ?? root;
+  const moduleDir = relative(root, module) || ".";
+  const stale = [...group.flatMap((t) => reports(t, task)), join(resultsDir(module, task), TIMING)];
+  for (const file of stale) rmSync(file, { force: true });
   // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   // A class filter does not match the class's nested classes, which Gradle names Outer$Inner.
@@ -290,6 +316,10 @@ export async function runTargets(
       ).values(),
     ],
     seconds: Math.round((Date.now() - started) / 100) / 10,
+    testSeconds: [...new Set(resolved.map((t) => t.module))].reduce(
+      (sum, module) => sum + testTaskSeconds(module, config.task),
+      0,
+    ),
     outputTail: output
       .split("\n")
       .filter((line) => /FAILED|What went wrong|error|e: |Exception/.test(line))

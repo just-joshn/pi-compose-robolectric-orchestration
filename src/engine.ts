@@ -123,7 +123,6 @@ async function execute(
 
 const detected = (r: TestRun) =>
   r.outcome === "failed" && r.cases.some((c) => c.status === "failed");
-const testSeconds = (r: TestRun) => r.cases.reduce((sum, c) => sum + c.seconds, 0);
 const median = (values: readonly number[]) =>
   values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
 
@@ -214,7 +213,7 @@ async function runPhase(run: Run, phase: Phase, runner: Runner, deps: Deps): Pro
 async function measure(run: Run, deps: Deps, phase: Phase): Promise<StepResult> {
   const baseline = phase.id === "baseline";
   const { run: next, recorded } = await repeat(run, "measure", MEASURE_RUNS, deps);
-  const timing = `test time per run: ${recorded.map((r) => testSeconds(r).toFixed(2)).join(", ")}s`;
+  const timing = `test time per run: ${recorded.map((r) => r.testSeconds.toFixed(2)).join(", ")}s`;
   if (recorded.some((r) => r.outcome !== "passed")) {
     const reason = "Every measurement run must pass.";
     const ended = baseline
@@ -224,9 +223,11 @@ async function measure(run: Run, deps: Deps, phase: Phase): Promise<StepResult> 
   }
   if (baseline) return result(advance(next), `Baseline ${timing}`);
   const before = median(
-    next.runs.filter((r) => r.purpose === "measure" && r.phase === "baseline").map(testSeconds),
+    next.runs
+      .filter((r) => r.purpose === "measure" && r.phase === "baseline")
+      .map((r) => r.testSeconds),
   );
-  const after = median(recorded.map(testSeconds));
+  const after = median(recorded.map((r) => r.testSeconds));
   const speedup = before > 0 ? (before - after) / before : 0;
   const summary = `Median test time ${before.toFixed(2)}s -> ${after.toFixed(2)}s (${(speedup * 100).toFixed(1)}%).`;
   if (speedup >= MIN_SPEEDUP) return result(advance(next), summary, timing);

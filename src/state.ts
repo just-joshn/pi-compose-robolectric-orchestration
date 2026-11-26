@@ -19,6 +19,8 @@ export interface TestRun {
   readonly outcome: Outcome;
   readonly cases: readonly TestCase[];
   readonly seconds: number;
+  /** Test task time measured by Gradle's test listener, class-level setup included. */
+  readonly testSeconds: number;
   readonly outputTail: string;
   /** Digest of the tree the tests ran against (the pre-swap tree for mutation and regression runs). */
   readonly tree: string;
@@ -152,7 +154,7 @@ const isTestRun = (v: unknown): v is TestRun =>
   hasStrings(v, ["phase", "command", "outputTail", "tree"]) &&
   isOneOf(v["purpose"], PURPOSES) &&
   isOneOf(v["outcome"], OUTCOMES) &&
-  hasNumbers(v, ["id", "exitCode", "seconds"]) &&
+  hasNumbers(v, ["id", "exitCode", "seconds", "testSeconds"]) &&
   isArrayOf(v["cases"], isCase);
 const isMutation = (v: unknown): v is Mutation =>
   isRecord(v) &&

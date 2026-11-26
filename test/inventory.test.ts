@@ -49,6 +49,7 @@ class FooTest {
       outcome: "passed",
       cases,
       seconds: 1,
+      testSeconds: 1,
       outputTail: "",
       tree: digest(fingerprint(root)),
     };

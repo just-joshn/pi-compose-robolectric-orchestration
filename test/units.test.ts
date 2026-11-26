@@ -209,6 +209,7 @@ const failedRun = {
   outcome: "failed",
   cases: [{ className: "a.T", name: "m", status: "failed", seconds: 1, message: "boom\nmore" }],
   seconds: 3,
+  testSeconds: 2,
   outputTail: "",
   tree: "t",
 } as const;

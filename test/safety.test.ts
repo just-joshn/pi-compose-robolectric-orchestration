@@ -37,6 +37,7 @@ const aRun: TestRun = {
   command: "",
   exitCode: 0,
   seconds: 1,
+  testSeconds: 1,
   outcome: "passed",
   outputTail: "",
   tree: "",
