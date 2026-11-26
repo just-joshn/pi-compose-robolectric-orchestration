@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 
-import { stripCode, testFunctions } from "./lint.ts";
+import { annotation, blockEnd, stripCode, testFunctions } from "./lint.ts";
 import { inside } from "./paths.ts";
 
 export interface Target {
@@ -63,25 +63,38 @@ export interface TestClass {
 }
 
 const DECLARATION =
-  /^[ \t]*(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
+  /^[ \t]*((?:@[\w.]+(?:\([^)]*\))?\s+)*)(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
+
+/** Whether an offset lies in the body of an @Ignore'd class, nested ones included. */
+function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], ignore: RegExp) {
+  const bodies = declarations.flatMap((m, i) => {
+    const open = code.indexOf("{", m.index + m[0].length);
+    const bodied = open >= 0 && open < (declarations[i + 1]?.index ?? code.length);
+    return ignore.test(m[1] ?? "") && bodied ? [[open, blockEnd(code, open)] as const] : [];
+  });
+  return (at: number) => bodies.some(([from, to]) => at > from && at < to);
+}
 
 /**
- * Every top-level class holding @Test functions, each with its tests. With none, the last
- * top-level class, or the file name, so a file that has no tests yet still names a class.
+ * Every top-level class holding @Test functions JUnit runs, each with those tests. With none, the
+ * last top-level class, or the file name, so a file that has no tests yet still names a class.
  */
 export function testClasses(source: string, file: string): TestClass[] {
   const code = stripCode(source);
   const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
   const qualify = (name: string) => (pkg ? `${pkg}.${name}` : name);
-  const tops = [...code.matchAll(DECLARATION)].filter((m) => {
+  const declarations = [...code.matchAll(DECLARATION)];
+  const tops = declarations.filter((m) => {
     const before = code.slice(0, m.index);
     return before.split("{").length === before.split("}").length;
   });
-  const tests = testFunctions(source);
+  const ignore = annotation(code, "Ignore");
+  const skipped = inIgnoredClass(code, declarations, ignore);
+  const tests = testFunctions(source).filter((t) => !ignore.test(t.header) && !skipped(t.at));
   const classes = tops.map((m, i) => {
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
     return {
-      name: qualify(m[1] ?? ""),
+      name: qualify(m[2] ?? ""),
       tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name),
     };
   });

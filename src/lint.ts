@@ -201,7 +201,7 @@ function expressionEnd(source: string, start: number): number {
   return source.length;
 }
 
-function blockEnd(source: string, start: number): number {
+export function blockEnd(source: string, start: number): number {
   let depth = 1;
   let end = start + 1;
   while (end < source.length && depth > 0) {
