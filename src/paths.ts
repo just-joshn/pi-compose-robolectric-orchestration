@@ -25,7 +25,6 @@ function within(root: string, path: string): boolean {
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-/** Where a write to `path` lands: its deepest existing ancestor resolved; undefined for a dangling symlink. */
 function landing(path: string): string | undefined {
   if (existsSync(path)) return realpathSync(path);
   if (lstatSync(path, { throwIfNoEntry: false })) return undefined;
