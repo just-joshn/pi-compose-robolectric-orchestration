@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path";
+import { relative } from "node:path";
 
 import type {
   ExtensionAPI,
@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { recheck } from "./checks.ts";
-import { categorize, inside } from "./paths.ts";
+import { categorize, inside, toolPath } from "./paths.ts";
 import { currentPhase, finish, newRun, nextStep, report, type Run, terminal } from "./state.ts";
 import { recoverSwap, stateDir } from "./swap.ts";
 import { registerTools, Session } from "./tools.ts";
@@ -28,8 +28,9 @@ function say(ctx: ExtensionContext, message: string) {
 function editBlock(run: Run, cwd: string, path: string): string | undefined {
   if (run.status === "routing")
     return "compose-test: call compose_test_start before editing files.";
-  if (!inside(cwd, path)) return `compose-test: ${path} is outside the workspace.`;
-  const rel = relative(cwd, resolve(cwd, path));
+  const full = toolPath(cwd, path);
+  if (!inside(cwd, full)) return `compose-test: ${path} is outside the workspace.`;
+  const rel = relative(cwd, full);
   const phase = currentPhase(run);
   const category = categorize(rel);
   if (phase?.scope.includes(category)) return undefined;
@@ -118,7 +119,7 @@ function registerToolGates(pi: ExtensionAPI, session: Session) {
     const run = session.run;
     if (run?.status !== "active" || event.toolName !== "read" || event.isError) return;
     if (event.input["offset"] !== undefined || event.input["limit"] !== undefined) return;
-    const path = relative(ctx.cwd, resolve(ctx.cwd, pathOf(event.input)));
+    const path = relative(ctx.cwd, toolPath(ctx.cwd, pathOf(event.input)));
     if (!run.reads.includes(path)) session.set({ ...run, reads: [...run.reads, path] });
   });
 }

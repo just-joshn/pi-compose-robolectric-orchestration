@@ -338,3 +338,28 @@ describe("the review read gate", () => {
     expect((await h.call("compose_test_step")).details["status"]).toBe("verified");
   });
 });
+
+describe("tool paths Pi resolves before writing", () => {
+  it("are checked where Pi writes them: ~, @ and file:// paths outside are blocked", async () => {
+    const root = workspace({ test: null });
+    const h = harness(root);
+    await h.run("Add a test");
+    await h.call("compose_test_start", { workflow: "write-test", targets: [{ file: TEST_FILE }] });
+    const outside = join(mkdtempSync(join(tmpdir(), "outside-")), "src/test/Evil.kt");
+    const gate = (path: string) => h.emit("tool_call", { toolName: "write", input: { path } });
+    const escapes = ["~/src/test/Evil.kt", `@${outside}`, `file://${outside}`];
+    for (const decision of await Promise.all(escapes.map(gate)))
+      expect(decision).toMatchObject({ block: true });
+    expect(await gate(`@${TEST_FILE}`)).toBeUndefined();
+  });
+
+  it("counts a read written with @ as a read of the file", async () => {
+    const root = workspace();
+    const h = harness(root);
+    await h.run("review Check FooTest");
+    await h.call("compose_test_start", { workflow: "review", targets: [{ file: TEST_FILE }] });
+    const input = { path: `@${TEST_FILE}` };
+    await h.emit("tool_result", { toolName: "read", isError: false, input });
+    expect((await h.call("compose_test_step")).details["status"]).toBe("verified");
+  });
+});
