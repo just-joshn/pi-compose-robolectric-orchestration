@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { start } from "../src/engine.ts";
 import { className, gradleConfig, parseJUnitXml } from "../src/gradle.ts";
-import { lintTestSource, testFunctions } from "../src/lint.ts";
+import { countIgnores, lintTestSource, testFunctions } from "../src/lint.ts";
 import { categorize } from "../src/paths.ts";
 import { addRun, finish, isRun, newRun, report } from "../src/state.ts";
 import { recoverSwap, stateDir, withSwappedFiles } from "../src/swap.ts";
@@ -356,5 +356,30 @@ describe("Kotlin functions whose body starts on the next line", () => {
     expect(lintTestSource("app/src/test/T.kt", source).map((f) => f.rule)).toContain(
       "thread-sleep",
     );
+  });
+});
+
+describe("Kotlin the scanner must read like the compiler", () => {
+  it("treats aliased JUnit annotations as the real ones", () => {
+    const source =
+      "import org.junit.Test as JUnitTest\nimport org.junit.Ignore as Skip\nclass T {\n  @Skip\n  @JUnitTest fun a() { Thread.sleep(1) }\n}";
+    expect(testFunctions(source).map((t) => t.name)).toEqual(["a"]);
+    expect(countIgnores(source)).toBe(1);
+    expect(lintTestSource("app/src/test/T.kt", source).map((f) => f.rule)).toContain(
+      "no-assertion",
+    );
+  });
+
+  it("ignores tests inside nested block comments", () => {
+    const source =
+      "class T {\n  /* outer\n    /* inner */\n    @Test fun phantom() { }\n  */\n  @Test fun real() { assert(true) }\n}";
+    expect(testFunctions(source).map((t) => t.name)).toEqual(["real"]);
+    expect(lintTestSource("app/src/test/T.kt", source)).toEqual([]);
+  });
+
+  it("counts assertions made through a backtick-named helper", () => {
+    const source =
+      "class T {\n  fun `check [thing]`() { assert(true) }\n  @Test fun test() { `check [thing]`() }\n}";
+    expect(lintTestSource("app/src/test/T.kt", source)).toEqual([]);
   });
 });

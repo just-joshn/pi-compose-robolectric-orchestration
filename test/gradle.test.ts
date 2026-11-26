@@ -149,3 +149,11 @@ describe("targets that leave the workspace after start", () => {
     expect(existsSync(report)).toBe(true);
   });
 });
+
+describe("aliased test annotations", () => {
+  it("still selects the class that holds the tests", () => {
+    const source =
+      "package p\nimport org.junit.Test as JUnitTest\nclass ActualTest { @JUnitTest fun works() {} }\nclass Helper {}";
+    expect(className(source, "ActualTest.kt")).toBe("p.ActualTest");
+  });
+});

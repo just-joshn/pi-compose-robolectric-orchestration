@@ -102,18 +102,48 @@ function countBefore(sorted: readonly number[], index: number): number {
 
 const blank = (text: string) => text.replace(/[^\n]/g, " ");
 
+const LITERAL = /\/\/[^\n]*|\/\*|"""[\s\S]*?(?:"""|$)|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])'/g;
+const COMMENT_MARK = /\/\*|\*\//g;
+
+/** Kotlin block comments nest. */
+function commentEnd(source: string, start: number): number {
+  COMMENT_MARK.lastIndex = start;
+  let depth = 0;
+  for (let m = COMMENT_MARK.exec(source); m; m = COMMENT_MARK.exec(source)) {
+    depth += m[0] === "/*" ? 1 : -1;
+    if (depth === 0) return m.index + 2;
+  }
+  return source.length;
+}
+
 /**
  * Blank out comments and string literals, keeping every newline and offset, so rules only see
- * code. Handles //, nested-free block comments, "...", """...""" and char literals.
+ * code. Handles //, nested block comments, "...", """...""" and char literals.
  */
-export const stripCode = (source: string): string =>
-  source.replace(
-    /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"""[\s\S]*?(?:"""|$)|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])'/g,
-    (text) =>
-      text.startsWith('"') || text.startsWith("'")
-        ? `${text[0]}${blank(text.slice(1, -1))}${text.at(-1)}`
-        : blank(text),
+export function stripCode(source: string): string {
+  let out = "";
+  let last = 0;
+  LITERAL.lastIndex = 0;
+  for (let m = LITERAL.exec(source); m; m = LITERAL.exec(source)) {
+    const end = m[0] === "/*" ? commentEnd(source, m.index) : m.index + m[0].length;
+    const text = source.slice(m.index, end);
+    const quoted = text.startsWith('"') || text.startsWith("'");
+    out += source.slice(last, m.index);
+    out += quoted ? `${text[0]}${blank(text.slice(1, -1))}${text.at(-1)}` : blank(text);
+    last = end;
+    LITERAL.lastIndex = end;
+  }
+  return out + source.slice(last);
+}
+
+/** `@Name`, `@org.junit.Name`, or an alias from `import ….Name as Alias`; `code` must be stripped. */
+export function annotation(code: string, name: "Test" | "Ignore"): RegExp {
+  const imports = code.matchAll(
+    new RegExp(`^\\s*import\\s+[\\w.]+\\.${name}\\s+as\\s+(\\w+)`, "gm"),
   );
+  const aliases = [...imports].map((m) => `|${m[1] ?? name}`).join("");
+  return new RegExp(`@(?:(?:org\\.junit\\.)?${name}${aliases})\\b`);
+}
 
 const OPENERS: Record<string, string> = { "(": ")", "{": "}", "[": "]" };
 
@@ -167,6 +197,7 @@ function functions(code: string): KotlinFunction[] {
   const newlines = offsets(code, "\n");
   const boundaries = offsets(code, "{};");
   const found: KotlinFunction[] = [];
+  const test = annotation(code, "Test");
   for (const match of code.matchAll(/\bfun\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?(`[^`]+`|\w+)\s*\(/g)) {
     const at = match.index ?? 0;
     BODY_START.lastIndex = closeParen(code, at + match[0].length);
@@ -180,7 +211,7 @@ function functions(code: string): KotlinFunction[] {
       line: countBefore(newlines, at) + 1,
       header,
       body: code.slice(start, end),
-      isTest: /@(org\.junit\.)?Test\b/.test(header),
+      isTest: test.test(header),
     });
   }
   return found;
@@ -204,8 +235,12 @@ function assertingHelpers(all: readonly KotlinFunction[]): Set<string> {
   return helpers;
 }
 
+const escape = (text: string) => text.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const asserts = (body: string, helpers: ReadonlySet<string>) =>
-  ASSERTION.test(body) || [...helpers].some((name) => new RegExp(`\\b${name}\\s*\\(`).test(body));
+  ASSERTION.test(body) ||
+  [...helpers].some((name) =>
+    new RegExp(`(?:\`${escape(name)}\`|\\b${escape(name)}\\b)\\s*\\(`).test(body),
+  );
 
 export function lintTestSource(file: string, source: string): LintFinding[] {
   const findings: LintFinding[] = [];
@@ -248,7 +283,8 @@ export function lintTestSource(file: string, source: string): LintFinding[] {
   return findings.toSorted((a, b) => a.line - b.line);
 }
 
-export const countIgnores = (source: string) =>
-  stripCode(source)
-    .split("\n")
-    .filter((line) => /^\s*@(org\.junit\.)?Ignore\b/.test(line)).length;
+export function countIgnores(source: string): number {
+  const code = stripCode(source);
+  const ignore = new RegExp(`^\\s*${annotation(code, "Ignore").source}`);
+  return code.split("\n").filter((line) => ignore.test(line)).length;
+}

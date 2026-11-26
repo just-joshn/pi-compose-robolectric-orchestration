@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 
-import { stripCode } from "./lint.ts";
+import { annotation, stripCode } from "./lint.ts";
 import { inside } from "./paths.ts";
 
 export interface Target {
@@ -59,7 +59,7 @@ export function gradleConfig(env = process.env) {
 export function className(source: string, file: string): string {
   const code = stripCode(source);
   const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
-  const firstTest = code.search(/@(org\.junit\.)?Test\b/);
+  const firstTest = code.search(annotation(code, "Test"));
   const declaration =
     /^[ \t]*(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
   let name = basename(file).replace(/\.kt$/, "");
