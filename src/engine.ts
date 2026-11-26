@@ -12,7 +12,7 @@ import {
   testIds,
 } from "./checks.ts";
 import type { GradleDeps, Target } from "./gradle.ts";
-import { type LintFinding, lintTestSource } from "./lint.ts";
+import { type LintFinding, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, inside, isSource } from "./paths.ts";
 import {
   execute,
@@ -67,9 +67,28 @@ function confine(cwd: string, file: string): string {
 const notFile = (cwd: string, file: string) =>
   existsSync(join(cwd, file)) && !statSync(join(cwd, file)).isFile();
 
+function checkMethod(cwd: string, file: string, method: string): void {
+  if (!existsSync(join(cwd, file))) return;
+  const names = testFunctions(read(cwd, file)).map((t) => t.name);
+  if (names.includes(method)) return;
+  const tests = names.length ? `Its tests: ${names.join(", ")}.` : "It has no @Test functions.";
+  reject(`Method ${method} is not a @Test function in ${file}. ${tests} Name one, or omit method.`);
+}
+
+function parseTarget(cwd: string, id: WorkflowId, raw: Target): Target {
+  const file = confine(cwd, raw.file);
+  if (id !== "review" && !/(^|\/)src\/test[A-Za-z0-9]*\/.*\.kt$/.test(file))
+    reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
+  if (!workflows[id].createsTargets && !existsSync(join(cwd, file)))
+    reject(`Target ${file} does not exist.`);
+  if (notFile(cwd, file)) reject(`Target ${file} is not a file.`);
+  if (!raw.method) return { file };
+  const method = raw.method.replace(/^`(.*)`$/, "$1");
+  checkMethod(cwd, file, method);
+  return { file, method };
+}
+
 function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
-  const workflow = workflows[raw.workflow];
-  const runsTests = raw.workflow !== "review";
   if (run.status !== "routing") reject("A workflow is already running.");
   if (run.forcedWorkflow && run.forcedWorkflow !== raw.workflow)
     reject(`The operator selected the ${run.forcedWorkflow} workflow. Start that one.`);
@@ -77,17 +96,10 @@ function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
   const own = (file: string) => confine(cwd, file);
   const input: StartInput = {
     ...raw,
-    targets: raw.targets.map((t) => ({ ...t, file: own(t.file) })),
+    targets: raw.targets.map((t) => parseTarget(cwd, raw.workflow, t)),
     ...(raw.subject ? { subject: raw.subject.map(own) } : {}),
     ...(raw.source ? { source: own(raw.source) } : {}),
   };
-  for (const { file } of input.targets) {
-    if (runsTests && !/(^|\/)src\/test[A-Za-z0-9]*\/.*\.kt$/.test(file))
-      reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
-    if (!workflow.createsTargets && !existsSync(join(cwd, file)))
-      reject(`Target ${file} does not exist.`);
-    if (notFile(cwd, file)) reject(`Target ${file} is not a file.`);
-  }
   for (const file of input.subject ?? [])
     if (categorize(file) !== "production" || !existsSync(join(cwd, file)))
       reject(`Subject ${file} is not an existing production source file.`);
