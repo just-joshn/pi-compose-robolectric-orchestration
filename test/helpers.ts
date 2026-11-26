@@ -11,7 +11,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { type Deps, start, type StartInput } from "../src/engine.ts";
-import type { Exec } from "../src/gradle.ts";
+import type { Exec, TestCase } from "../src/gradle.ts";
+import { testFunctions } from "../src/lint.ts";
 import { newRun } from "../src/state.ts";
 
 export const TEST_FILE = "app/src/test/java/a/FooTest.kt";
@@ -128,6 +129,32 @@ export function fakeGradle(
     return { code: ok ? 0 : 1, stdout: ok ? "BUILD SUCCESSFUL" : "FAILED", stderr: "" };
   };
   return { exec, calls };
+}
+
+const RESULT_TAG = { passed: "", failed: '<failure message="x"/>', skipped: "<skipped/>" };
+
+/**
+ * A fake Gradle that runs each @Test function of the target file, with the status `status` gives
+ * its code (strings blanked) and the production file, and the task time `ms` gives.
+ */
+export function junitGradle(
+  root: string,
+  status: (body: string, main: string) => TestCase["status"],
+  ms: () => number = () => 500,
+): Exec {
+  return async (_command, args) => {
+    const main = read(root, MAIN_FILE);
+    const cases = testFunctions(read(root, TEST_FILE)).map((t) => ({
+      name: t.name,
+      status: status(t.body, main),
+    }));
+    const tags = cases.map(
+      (c) => `<testcase name="${c.name}" classname="a.FooTest">${RESULT_TAG[c.status]}</testcase>`,
+    );
+    write(root, RESULT_XML, `<testsuite>${tags.join("")}</testsuite>`);
+    recordTask(root, args, { ms: ms() });
+    return { code: cases.some((c) => c.status === "failed") ? 1 : 0, stdout: "", stderr: "" };
+  };
 }
 
 /** A Gradle --tests filter as a regular expression; `*` is its only wildcard. */

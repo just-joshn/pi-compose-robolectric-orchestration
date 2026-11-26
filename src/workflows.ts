@@ -29,7 +29,7 @@ export interface Phase {
 export interface Workflow {
   readonly trigger: string;
   readonly phases: readonly Phase[];
-  /** Every test that existed at start must still exist and pass. */
+  /** Every test that existed at start must still exist and pass, unless an assumption skipped it then. */
   readonly preserveTests: boolean;
   /** Target test files may be created rather than exist at start. */
   readonly createsTargets: boolean;

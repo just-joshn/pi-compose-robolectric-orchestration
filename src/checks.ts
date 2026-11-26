@@ -130,6 +130,14 @@ const caseId = (c: TestCase) => `${c.className.split("$")[0]}.${c.name}`;
 const passes = (r: TestRun, test: string) =>
   r.cases.filter((c) => c.status === "passed" && ofTest(caseId(c), test)).length;
 
+const firstCases = (run: Run) => run.runs.find((r) => !ranNothing(r))?.cases ?? [];
+
+/** A test an assumption skipped before any change, such as one gated on a newer SDK. */
+function skippedAtStart(run: Run, test: string): boolean {
+  const cases = firstCases(run).filter((c) => ofTest(caseId(c), test));
+  return cases.length > 0 && cases.every((c) => c.status === "skipped");
+}
+
 /**
  * Cases of the start's tests, each parameterized case on its own, that ran in the first run to
  * pass or fail but do not pass in `last`; a run a crash cut short may lack cases. A class-level
@@ -138,8 +146,7 @@ const passes = (r: TestRun, test: string) =>
 function lostCases(run: Run, last: TestRun): string[] {
   const ids = (cases: readonly TestCase[]) =>
     cases.map(caseId).filter((id) => run.baselineTests.some((t) => ofTest(id, t)));
-  const first = run.runs.find((r) => !ranNothing(r))?.cases ?? [];
-  const ran = ids(first.filter((c) => c.status !== "skipped"));
+  const ran = ids(firstCases(run).filter((c) => c.status !== "skipped"));
   return surplus(ran, ids(last.cases.filter((c) => c.status === "passed")));
 }
 
@@ -176,7 +183,9 @@ function problems(run: Run, cwd: string): string[] {
   }
   if (workflow.preserveTests && lastPass) {
     const needed = (name: string) => run.baselineTests.filter((t) => t === name).length;
-    const lost = [...new Set(run.baselineTests)].filter((t) => passes(lastPass, t) < needed(t));
+    const lost = [...new Set(run.baselineTests)].filter(
+      (t) => !skippedAtStart(run, t) && passes(lastPass, t) < needed(t),
+    );
     const missing = [...new Set([...lost, ...lostCases(run, lastPass)])];
     if (missing.length) found.push(`Original tests missing or not passing: ${missing.join(", ")}.`);
   }
