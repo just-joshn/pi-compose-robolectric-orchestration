@@ -124,7 +124,7 @@ export function testClasses(source: string, file: string): TestClass[] {
   });
   const ignore = annotation(code, "Ignore");
   const skipped = inIgnoredClass(code, declarations, ignore);
-  const tests = testFunctions(source).filter((t) => !ignore.test(t.header) && !skipped(t.at));
+  const tests = testFunctions(source);
   const declarationsWithTests = tops.map((m, i) => {
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
     const bases = supertypes(code.slice(m.index + m[0].length, to)).map((type) =>
@@ -134,14 +134,20 @@ export function testClasses(source: string, file: string): TestClass[] {
       .filter((t) => t.at >= from && t.at < to)
       .map((t) => {
         const before = code.slice(from, t.at);
-        return { name: t.name, direct: before.split("{").length - before.split("}").length === 1 };
+        return {
+          name: t.name,
+          ignored: ignore.test(t.header),
+          direct: before.split("{").length - before.split("}").length === 1,
+          inIgnoredClass: skipped(t.at),
+        };
       });
     return {
       name: m[3] ?? "",
       abstract: /\b(abstract|sealed)\s/.test(m[2] ?? ""),
+      ignored: ignore.test(m[1] ?? ""),
       bases,
-      direct: own.filter((t) => t.direct).map((t) => t.name),
-      nested: own.filter((t) => !t.direct).map((t) => t.name),
+      direct: own.filter((t) => t.direct),
+      nested: own.filter((t) => !t.direct && !t.ignored && !t.inIgnoredClass).map((t) => t.name),
     };
   });
   const byName = new Map(declarationsWithTests.map((c) => [c.name, c]));
@@ -150,20 +156,27 @@ export function testClasses(source: string, file: string): TestClass[] {
     if (!declaration || seen.has(name)) return [];
     seen.add(name);
     const direct = declaration.direct.filter((test) => {
-      if (declared.has(test)) return false;
-      declared.add(test);
+      if (declared.has(test.name)) return false;
+      declared.add(test.name);
       return true;
     });
-    return [...direct, ...declaration.bases.flatMap((base) => inherited(base, seen, declared))];
+    return [
+      ...direct.filter((test) => !test.ignored).map((test) => test.name),
+      ...declaration.bases.flatMap((base) => inherited(base, seen, declared)),
+    ];
   };
   const classes = declarationsWithTests
-    .filter((c) => !c.abstract)
+    .filter((c) => !c.abstract && !c.ignored)
     .map((c) => {
       const seen = new Set([c.name]);
-      const declared = new Set(c.direct);
+      const declared = new Set(c.direct.map((test) => test.name));
       return {
         name: qualify(c.name),
-        tests: [...c.direct, ...c.nested, ...c.bases.flatMap((b) => inherited(b, seen, declared))],
+        tests: [
+          ...c.direct.filter((test) => !test.ignored).map((test) => test.name),
+          ...c.nested,
+          ...c.bases.flatMap((b) => inherited(b, seen, declared)),
+        ],
       };
     });
   const withTests = classes.filter((c) => c.tests.length > 0);

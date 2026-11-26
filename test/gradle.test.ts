@@ -519,6 +519,97 @@ class Other {
   });
 });
 
+async function runIgnoringTests(source: string) {
+  const root = workspace({ test: source });
+  const exec: Exec = async (_command, args) => {
+    const filters = args.filter((_, i) => args[i - 1] === "--tests");
+    write(
+      root,
+      "app/build/test-results/testDebugUnitTest/TEST-a.PassingTest.xml",
+      '<testcase classname="a.PassingTest" name="works"/>',
+    );
+    if (filters.includes("a.IgnoredTest")) {
+      write(
+        root,
+        "app/build/test-results/testDebugUnitTest/TEST-a.IgnoredTest.xml",
+        '<testcase classname="a.IgnoredTest" name="works"><skipped/></testcase>',
+      );
+    }
+    recordTask(root, args);
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  return runTargets(deps(root, exec), [{ file: TEST_FILE }]);
+}
+
+describe("ignored inherited test target selection", () => {
+  const base = `package a
+import org.junit.Ignore
+import org.junit.Test
+abstract class Base {
+  @Test open fun works() { assert(true) }
+}
+class PassingTest : Base()
+`;
+
+  it("does not target an ignored class for its inherited test", async () => {
+    const result = await runIgnoringTests(`${base}\n@Ignore class IgnoredTest : Base()\n`);
+    expect(result.outcome).toBe("passed");
+  });
+
+  it("does not target an ignored override as an inherited test", async () => {
+    const result = await runIgnoringTests(
+      `${base}\nclass IgnoredTest : Base() {\n  @Ignore @Test override fun works() { }\n}\n`,
+    );
+    expect(result.outcome).toBe("passed");
+  });
+
+  it("runs inherited tests in a subclass of an ignored base class", async () => {
+    const root = workspace({
+      test: `package a
+import org.junit.Ignore
+import org.junit.Test
+@Ignore open class BaseTest {
+  @Test fun inherited() { assert(false) }
+}
+class DerivedTest : BaseTest()
+class OtherTest {
+  @Test fun passes() { assert(true) }
+}
+`,
+    });
+    const exec: Exec = async (_command, args) => {
+      const filters = new Set(args.filter((_, i) => args[i - 1] === "--tests"));
+      write(
+        root,
+        "app/build/test-results/testDebugUnitTest/TEST-a.OtherTest.xml",
+        '<testcase classname="a.OtherTest" name="passes"/>',
+      );
+      if (filters.has("a.DerivedTest")) {
+        write(
+          root,
+          "app/build/test-results/testDebugUnitTest/TEST-a.DerivedTest.xml",
+          '<testcase classname="a.DerivedTest" name="inherited"><failure/></testcase>',
+        );
+      }
+      recordTask(root, args);
+      return { code: filters.has("a.DerivedTest") ? 1 : 0, stdout: "", stderr: "" };
+    };
+    const result = await runTargets(deps(root, exec), [{ file: TEST_FILE }]);
+    expect(result.outcome).toBe("failed");
+  });
+
+  it("runs a non-ignored override of an ignored base test", () => {
+    const source = `package a
+open class Base {
+  @Ignore @Test open fun works() {}
+}
+class Derived : Base() {
+  @Test override fun works() {}
+}`;
+    expect(testClasses(source, TEST_FILE)).toEqual([{ name: "a.Derived", tests: ["works"] }]);
+  });
+});
+
 describe("transitive inherited test target selection", () => {
   it("runs a concrete descendant through an abstract intermediate class", async () => {
     const root = workspace({
