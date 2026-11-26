@@ -97,6 +97,10 @@ export function fakeGradle(
   return { exec, calls };
 }
 
+/** A Gradle --tests filter as a regular expression; `*` is its only wildcard. */
+export const glob = (filter: string) =>
+  new RegExp(`^${filter.replaceAll(/[.$[\]()]/g, "\\$&").replaceAll("*", ".*")}$`);
+
 export const behavior = (main: string) => (main.includes("BROKEN") ? "fail" : "pass");
 
 export function deps(root: string, exec: Exec): Deps {

@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { type Deps, start, step } from "../src/engine.ts";
-import type { Exec } from "../src/gradle.ts";
+import { type Exec, runTargets } from "../src/gradle.ts";
 import { currentPhase, newRun, type Run } from "../src/state.ts";
-import { commit, deps, MAIN_FILE, read, TEST_FILE, workspace, write } from "./helpers.ts";
+import { commit, deps, glob, MAIN_FILE, read, TEST_FILE, workspace, write } from "./helpers.ts";
 
 type Cases = Readonly<Record<string, readonly (readonly [name: string, ok: boolean])[]>>;
-
-const glob = (filter: string) =>
-  new RegExp(`^${filter.replaceAll(/[.$[\]()]/g, "\\$&").replaceAll("*", ".*")}$`);
 
 /**
  * Like Gradle: a filter names a class or `Class.method`, `*` is its only wildcard, a class-level
@@ -51,8 +48,8 @@ class SuffixTest(private val suffix: String) {
 }
 `;
 
-/** FooTest.greets fails while greeting() is BROKEN; `extra` adds or overrides FooTest's cases. */
-function fixFailing(extra: readonly (readonly [string, boolean])[] = []) {
+/** greets and every startsWithGreeting case fail while greeting() is BROKEN; `extra` adds or overrides FooTest's cases. */
+function fixFailing(extra: readonly (readonly [string, boolean])[] = [], method = "greets") {
   const root = workspace({ test: source });
   write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
   commit(root, "bug");
@@ -64,14 +61,11 @@ function fixFailing(extra: readonly (readonly [string, boolean])[] = []) {
       const foo = new Map<string, boolean>([["greets", greets], ["waves", true], ...extra]);
       return {
         "a.FooTest": [...foo],
-        "a.SuffixTest": params.map((_, i) => [`startsWithGreeting[${i}]`, true] as const),
+        "a.SuffixTest": params.map((_, i) => [`startsWithGreeting[${i}]`, greets] as const),
       };
     }),
   );
-  const input = {
-    workflow: "fix-failing",
-    targets: [{ file: TEST_FILE, method: "greets" }],
-  } as const;
+  const input = { workflow: "fix-failing", targets: [{ file: TEST_FILE, method }] } as const;
   const run: Run = start(newRun("g", null), input, root).run;
   return { root, d, run };
 }
@@ -106,5 +100,33 @@ describe("fix-failing with a method target", () => {
       ["classMethod", false],
     ]);
     expect(currentPhase((await step(run, d)).run)?.id).toBe("fix");
+  });
+});
+
+describe("a method target on a Parameterized test", () => {
+  it("runs the method's cases and no method its name prefixes", async () => {
+    const root = workspace({ test: source });
+    const exec = gradle(root, () => ({
+      "a.SuffixTest": [
+        ["startsWithGreeting[0]", true],
+        ["startsWithGreeting[1]", true],
+        ["startsWithGreetingLoud[0]", false],
+      ],
+    }));
+    const target = { file: TEST_FILE, method: "startsWithGreeting" };
+    const ran = await runTargets(deps(root, exec), [target]);
+    expect(ran.outcome).toBe("passed");
+    expect(ran.cases.map((c) => c.name)).toEqual([
+      "startsWithGreeting[0]",
+      "startsWithGreeting[1]",
+    ]);
+  });
+
+  it("proves the fix on the original code", async () => {
+    const { root, d, run } = fixFailing([], "startsWithGreeting");
+    const fixing = (await step(run, d)).run;
+    expect(currentPhase(fixing)?.id).toBe("fix");
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
+    expect((await step(fixing, d)).run.status).toBe("verified");
   });
 });

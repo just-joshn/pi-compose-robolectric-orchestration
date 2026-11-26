@@ -9,6 +9,7 @@ import {
   begin,
   deps,
   fakeGradle,
+  glob,
   passingTest,
   RESULT_XML,
   TEST_FILE,
@@ -73,7 +74,11 @@ describe("running Gradle per module", () => {
       "--tests",
       "a.FooTest.showsGreeting",
       "--tests",
+      "a.FooTest.showsGreeting[*",
+      "--tests",
       "a.FooTest$*.showsGreeting",
+      "--tests",
+      "a.FooTest$*.showsGreeting[*",
       "--init-script",
       expect.stringMatching(/\.gradle$/),
     ]);
@@ -203,7 +208,7 @@ describe("a file with several top-level test classes", () => {
     const filters = calls.map((args) => args.filter((_, i) => args[i - 1] === "--tests"));
     expect(filters).toEqual([
       ["a.First", "a.First$*", "a.Second", "a.Second$*"],
-      ["a.Second.broken", "a.Second$*.broken"],
+      ["a.Second.broken", "a.Second.broken[*", "a.Second$*.broken", "a.Second$*.broken[*"],
     ]);
   });
 });
@@ -264,9 +269,6 @@ describe("a module whose Gradle path differs from its directory", () => {
     expect(calls[0]?.slice(1, 4)).toEqual(["-p", "android/app", "testDebugUnitTest"]);
   });
 });
-
-const glob = (filter: string) =>
-  new RegExp(`^${filter.replaceAll(/[.$]/g, "\\$&").replaceAll("*", ".*")}$`);
 
 describe("tests in nested classes", () => {
   const inner = "a.FooTest$WhenShouting";
