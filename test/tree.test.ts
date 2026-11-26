@@ -29,3 +29,16 @@ describe("a git submodule", () => {
     expect(changedPaths(root, before, fingerprint(root))).toEqual(["core"]);
   });
 });
+
+describe("a module whose build directory git does not ignore", () => {
+  it("keeps build output out of the fingerprint, but not a source package named build", () => {
+    const root = workspace();
+    write(root, ".gitignore", "");
+    commit(root, "track everything");
+    const before = fingerprint(root);
+    write(root, "app/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml", "<testsuite/>");
+    const pkg = "app/src/main/java/a/build/Thing.kt";
+    write(root, pkg, "package a.build");
+    expect(changedPaths(root, before, fingerprint(root))).toEqual([pkg]);
+  });
+});

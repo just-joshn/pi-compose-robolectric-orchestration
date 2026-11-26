@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 import { categorize } from "./paths.ts";
 
@@ -52,7 +52,7 @@ function dirtyPaths(cwd: string, top: string, status: string): string[] {
   }
   return paths
     .map((p) => relative(base, join(top, p)))
-    .filter((p) => p !== ".." && !p.startsWith(`..${sep}`));
+    .filter((p) => p !== ".." && !p.startsWith(`..${sep}`) && !isOutput(`${dirname(p)}/`));
 }
 
 /**
