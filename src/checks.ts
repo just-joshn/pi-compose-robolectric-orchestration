@@ -95,7 +95,8 @@ export function editProblem(run: Run, cwd: string): string | undefined {
   if (!run.source) return undefined;
   const source = baselineContent(cwd, run, run.source)?.toString("utf8") ?? read(cwd, run.source);
   const expected = testFunctions(source).length;
-  const actual = run.targets.reduce((n, t) => n + testFunctions(read(cwd, t.file)).length, 0);
+  const files = new Set(run.targets.map((t) => t.file));
+  const actual = [...files].reduce((n, file) => n + testFunctions(read(cwd, file)).length, 0);
   if (actual < expected)
     return `The source has ${expected} @Test cases but the targets have ${actual}. Migrate every case.`;
   return undefined;

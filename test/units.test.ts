@@ -166,13 +166,16 @@ describe("temporary file swaps", () => {
     ).rejects.toThrow("boom");
     expect(readFileSync(a, "utf8")).toBe("original");
     writeFileSync(a, "mutated");
-    const record = JSON.stringify([
-      {
-        path: a,
-        original: Buffer.from("original").toString("base64"),
-        written: createHash("sha256").update("mutated").digest("hex"),
-      },
-    ]);
+    const record = JSON.stringify({
+      pid: process.pid,
+      files: [
+        {
+          path: a,
+          original: Buffer.from("original").toString("base64"),
+          written: createHash("sha256").update("mutated").digest("hex"),
+        },
+      ],
+    });
     writeFileSync(join(dir, "swap.json"), record);
     expect(recoverSwap(dir)).toEqual({ restored: [a], conflicts: [] });
     expect(recoverSwap(dir)).toEqual({ restored: [], conflicts: [] });

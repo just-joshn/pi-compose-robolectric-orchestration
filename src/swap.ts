@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -37,6 +45,53 @@ const isPendingFile = (v: unknown): v is PendingFile =>
   isString(v["path"]) &&
   (v["original"] === null || isString(v["original"])) &&
   (v["written"] === null || isString(v["written"]));
+
+/** The session process that owns a pending swap. */
+interface Journal {
+  readonly pid: number;
+  readonly files: readonly PendingFile[];
+}
+
+function readJournal(path: string): Journal | undefined {
+  if (!existsSync(path)) return undefined;
+  const v: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (isRecord(v) && typeof v["pid"] === "number" && isArrayOf(v["files"], isPendingFile))
+    return { pid: v["pid"], files: v["files"] };
+  throw new Error(`${path} is not a pending swap record.`);
+}
+
+const hasCode = (error: unknown, code: string) =>
+  error instanceof Error && "code" in error && error.code === code;
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return hasCode(error, "EPERM");
+  }
+}
+
+const heldElsewhere = (journal: Journal) => journal.pid !== process.pid && alive(journal.pid);
+
+/** Create the journal only if none exists, so two sessions can never both hold one. */
+function claim(path: string, journal: Journal) {
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, JSON.stringify(journal));
+  try {
+    linkSync(temp, path);
+  } catch (error) {
+    if (hasCode(error, "EEXIST"))
+      throw new Error(
+        "Another compose-test run in this workspace is applying a negative control. Try again when it finishes.",
+        { cause: error },
+      );
+    throw error;
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
 const current = (path: string) => (existsSync(path) ? readFileSync(path) : null);
 
 function put(path: string, content: Buffer | null) {
@@ -79,12 +134,13 @@ export async function withSwappedFiles<T>(
   swaps: readonly FileSwap[],
   work: () => Promise<T>,
 ): Promise<{ value: T; conflicts: string[] }> {
+  recoverSwap(dir);
   const files: PendingFile[] = swaps.map((swap) => ({
     path: swap.path,
     original: current(swap.path)?.toString("base64") ?? null,
     written: sha(swap.content),
   }));
-  atomicWrite(join(dir, PENDING), JSON.stringify(files));
+  claim(join(dir, PENDING), { pid: process.pid, files });
   const restoreAll = () => {
     const { conflicts } = restore(dir, files);
     rmSync(join(dir, PENDING), { force: true });
@@ -103,12 +159,12 @@ export async function withSwappedFiles<T>(
   return { value, conflicts: restoreAll() };
 }
 
+/** Repair a swap whose session exited mid-run; a live session's swap is left to it. */
 export function recoverSwap(dir: string): { restored: string[]; conflicts: string[] } {
   const path = join(dir, PENDING);
-  if (!existsSync(path)) return { restored: [], conflicts: [] };
-  const files: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!isArrayOf(files, isPendingFile)) throw new Error(`${path} is not a pending swap record.`);
-  const result = restore(dir, files);
+  const journal = readJournal(path);
+  if (!journal || heldElsewhere(journal)) return { restored: [], conflicts: [] };
+  const result = restore(dir, journal.files);
   rmSync(path, { force: true });
   return result;
 }

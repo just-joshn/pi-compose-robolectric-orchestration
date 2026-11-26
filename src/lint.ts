@@ -116,7 +116,6 @@ function commentEnd(source: string, start: number): number {
   return source.length;
 }
 
-/** End of a string opened by `quote` at `start`; `${...}` templates may hold their own strings. */
 function stringEnd(source: string, start: number, quote: string): number {
   let i = start + quote.length;
   while (i < source.length && !source.startsWith(quote, i)) {
@@ -150,8 +149,9 @@ function literalEnd(source: string, start: number, token: string): number {
 }
 
 /**
- * Blank out comments and string literals, keeping every newline and offset, so rules only see
- * code. Handles //, nested block comments, "...", """...""" with templates, and char literals.
+ * Blank comments and the contents of string and character literals, preserving their delimiters,
+ * newlines and offsets, so rules only see code. Handles line comments, nested block comments,
+ * and string templates.
  */
 export function stripCode(source: string): string {
   let out = "";
