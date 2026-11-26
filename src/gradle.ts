@@ -75,7 +75,7 @@ export interface TestClass {
 }
 
 const DECLARATION = new RegExp(
-  `^[ \\t]*((?:${ANNOTATION}\\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\\s+)*)(?:class|object)\\s+(\\w+)`,
+  `^[ \\t]*((?:${ANNOTATION}\\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\\s+)*)(?:class|object)\\s+(\\w+|\u0060[^\u0060\\n]+\u0060)`,
   "gm",
 );
 
@@ -89,7 +89,7 @@ interface Declaration {
   readonly topLevel: boolean;
 }
 
-function declarationsIn(code: string): Declaration[] {
+function declarationsIn(code: string, structure: string): Declaration[] {
   const matches = [...code.matchAll(DECLARATION)];
   return matches.map((m, i) => {
     const start = m.index + m[0].length;
@@ -98,25 +98,22 @@ function declarationsIn(code: string): Declaration[] {
     let angles = 0;
     let end = start;
     for (; end < limit; end++) {
-      const ch = code[end];
-      if (ch === "`") {
-        end = code.indexOf("`", end + 1);
-        continue;
-      }
+      const ch = structure[end];
       if (parens === 0 && angles === 0 && (ch === "{" || ch === "}")) break;
       if (ch === "(") parens++;
       if (ch === ")") parens--;
       if (parens === 0 && ch === "<") angles++;
       if (parens === 0 && ch === ">" && code[end - 1] !== "-") angles--;
     }
-    const before = code.slice(0, m.index);
+    const before = structure.slice(0, m.index);
     return {
-      name: m[3] ?? "",
+      name: (m[3] ?? "").replace(/^`|`$/g, ""),
       annotations: m[1] ?? "",
       modifiers: m[2] ?? "",
       at: m.index,
       header: code.slice(start, end),
-      body: end < limit && code[end] === "{" ? { from: end, to: blockEnd(code, end) } : null,
+      body:
+        end < limit && structure[end] === "{" ? { from: end, to: blockEnd(structure, end) } : null,
       topLevel: before.split("{").length === before.split("}").length,
     };
   });
@@ -153,9 +150,10 @@ function supertypes(header: string): string[] {
 
 export function testClasses(source: string, file: string): TestClass[] {
   const code = stripCode(source);
+  const structure = code.replace(/`[^`\n]*`/g, (name) => " ".repeat(name.length));
   const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
   const qualify = (name: string) => (pkg ? `${pkg}.${name}` : name);
-  const declarations = declarationsIn(code);
+  const declarations = declarationsIn(code, structure);
   const tops = declarations.filter((declaration) => declaration.topLevel);
   const ignore = annotation(code, "Ignore");
   const functions = testFunctions(source);
@@ -167,7 +165,7 @@ export function testClasses(source: string, file: string): TestClass[] {
     const own = functions
       .filter((t) => t.at >= from && t.at < to)
       .map((t) => {
-        const before = code.slice(from, t.at);
+        const before = structure.slice(from, t.at);
         return {
           name: t.name,
           ignored: ignore.test(t.header),

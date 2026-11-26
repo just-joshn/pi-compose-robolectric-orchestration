@@ -354,6 +354,7 @@ it("accepts a preserved passing nested test when a same-named sibling is skipped
 });
 
 it.each([
+  ["backtick-named nested class", "class `Logged in`", "Logged in"],
   [
     "nested class with a lambda in its superclass argument",
     "class LoggedIn : Base({ true })",
@@ -403,4 +404,67 @@ class FooTest {
     root,
   );
   expect(done.statusReason).toBe("All checks passed.");
+});
+
+it("does not verify a migration with a skipped backtick-named nested test", async () => {
+  const root = workspace({ test: null });
+  const source = "app/src/androidTest/java/a/DeviceTest.kt";
+  write(
+    root,
+    source,
+    `package a
+class DeviceTest {
+  @Test fun works() { assert(true) }
+  @Test fun other() { assert(true) }
+}
+`,
+  );
+  git(root, "add", "-A");
+  commit(root, "device tests");
+  const d = deps(root, async (_command, args) => {
+    const broken = read(root, MAIN_FILE).includes("BROKEN");
+    write(
+      root,
+      "app/build/test-results/testDebugUnitTest/TEST-a.FooTest$Logged in.xml",
+      `<testsuite><testcase classname="a.FooTest$Logged in" name="works"><skipped/></testcase></testsuite>`,
+    );
+    write(
+      root,
+      "app/build/test-results/testDebugUnitTest/TEST-a.FooTest$Other.xml",
+      `<testsuite><testcase classname="a.FooTest$Other" name="other">${broken ? "<failure/>" : ""}</testcase></testsuite>`,
+    );
+    recordTask(root, args);
+    return { code: broken ? 1 : 0, stdout: "", stderr: "" };
+  });
+  const run = start(
+    newRun("migrate", null),
+    {
+      workflow: "migrate",
+      source,
+      targets: [{ file: TEST_FILE }],
+    },
+    root,
+  ).run;
+  write(
+    root,
+    TEST_FILE,
+    `package a
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.experimental.runners.Enclosed
+@RunWith(Enclosed::class)
+class FooTest {
+  class \`Logged in\` {
+    @Test fun works() { org.junit.Assume.assumeTrue(false); assert(true) }
+  }
+  class Other {
+    @Test fun other() { assert(true) }
+  }
+}
+`,
+  );
+  const verified = await step(run, d);
+  const done = await mutate(verified.run, BREAK, d);
+  expect(done.run.status).not.toBe("verified");
+  expect(done.run.statusReason).toContain("Migrated cases were skipped");
 });

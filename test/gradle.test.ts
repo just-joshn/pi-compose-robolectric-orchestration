@@ -299,6 +299,29 @@ class FooTest(val check: () -> Boolean = { true }) : Base<List<String>>({ true }
   ]);
 });
 
+it("keeps braces in backtick class names out of class body boundaries", () => {
+  const source = `package a
+class FooTest {
+  class \`Logged {in\` {
+    @Test fun works() {}
+  }
+  class Other {
+    @Test fun other() {}
+  }
+}
+class AnotherTest {
+  @Test fun another() {}
+}`;
+  expect(testClasses(source, TEST_FILE)).toEqual([
+    {
+      name: "a.FooTest",
+      tests: ["works", "other"],
+      testIds: ["a.FooTest$Logged {in.works", "a.FooTest$Other.other"],
+    },
+    { name: "a.AnotherTest", tests: ["another"], testIds: ["a.AnotherTest.another"] },
+  ]);
+});
+
 describe("tests in nested classes", () => {
   const inner = "a.FooTest$WhenShouting";
   const source = `package a\nclass FooTest {\n  @Test fun greets() { assert(true) }\n  class WhenShouting {\n    @Test fun shouts() { assert(false) }\n  }\n}\n`;
