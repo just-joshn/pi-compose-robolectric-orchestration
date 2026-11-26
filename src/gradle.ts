@@ -76,7 +76,6 @@ export interface TestClass {
 const DECLARATION =
   /^[ \t]*((?:@[\w.]+(?:\([^)]*\))?\s+)*)((?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*)(?:class|object)\s+(\w+)/gm;
 
-/** Whether an offset lies in the body of an @Ignore'd class, nested ones included. */
 function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], ignore: RegExp) {
   const bodies = declarations.flatMap((m, i) => {
     const open = code.indexOf("{", m.index + m[0].length);
@@ -87,9 +86,8 @@ function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], 
 }
 
 /**
- * Every concrete top-level class holding @Test functions JUnit runs, each with those tests; an
- * abstract class's tests run under its subclasses. With none, the last concrete top-level class,
- * or the file name, so a file that has no tests yet still names a class.
+ * Concrete top-level classes with tests that are not @Ignore'd (an abstract class's tests run under
+ * its subclasses). With none, the last concrete top-level class or the file name.
  */
 export function testClasses(source: string, file: string): TestClass[] {
   const code = stripCode(source);
@@ -263,10 +261,7 @@ function invocation(
   };
 }
 
-/**
- * Gradle invocations share the project's build lock, so they run one after another. An aborted
- * run was killed partway, so it is cancelled rather than read as results.
- */
+/** Gradle invocations share the project's build lock, so they run one after another. */
 async function inOrder(
   exec: Exec,
   invocations: readonly Invocation[],

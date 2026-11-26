@@ -62,7 +62,6 @@ function registerRestore(pi: ExtensionAPI, session: Session) {
   pi.on("session_tree", restore);
 }
 
-/** "status" and "cancel" are commands only as the whole argument; anything longer is a goal. */
 function control(session: Session, request: string): string | undefined {
   const run = session.run;
   if (!request || request === "status")

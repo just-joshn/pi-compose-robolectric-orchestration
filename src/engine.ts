@@ -55,7 +55,6 @@ export interface StartInput {
   readonly source?: string;
 }
 
-/** The path in the normal form reads and changes use; refuses absolute and outside paths. */
 function confine(cwd: string, file: string): string {
   if (isAbsolute(file)) reject(`${file} must be relative to the workspace root.`);
   if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
