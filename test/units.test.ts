@@ -358,3 +358,18 @@ describe("maintainability review regressions", () => {
     expect(() => start(newRun("g", null), input, root)).toThrow(/\.kt test/);
   });
 });
+
+describe("a conflict on a file with a long path", () => {
+  it("saves the original under a name the file system accepts, and frees the swap", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "compose-test-state-"));
+    const deep = join(mkdtempSync(join(tmpdir(), "compose-test-swap-")), "a".repeat(120));
+    const file = join(deep, "b".repeat(120), "Screen.kt");
+    write(deep, join("b".repeat(120), "Screen.kt"), "original");
+    const swap = [{ path: file, content: Buffer.from("mutant") }];
+    const ran = await withSwappedFiles(dir, swap, async () => writeFileSync(file, "edited"));
+    const saved = /original saved to (.*)\)$/.exec(ran.conflicts[0] ?? "")?.[1] ?? "";
+    expect(readFileSync(saved, "utf8")).toBe("original");
+    const again = withSwappedFiles(dir, swap, async () => readFileSync(file, "utf8"));
+    await expect(again).resolves.toMatchObject({ value: "mutant" });
+  });
+});

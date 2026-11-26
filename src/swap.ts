@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { isArrayOf, isRecord, isString } from "./guards.ts";
 import { sha256 } from "./tree.ts";
@@ -117,7 +117,8 @@ function restore(
     const original = file.original === null ? null : Buffer.from(file.original, "base64");
     if (sha(now) === sha(original)) continue;
     if (sha(now) !== file.written) {
-      const saved = join(dir, `conflict-${Date.now()}-${file.path.replaceAll(/[/\\]/g, "_")}`);
+      const name = `${sha256(file.path).slice(0, 12)}-${basename(file.path).slice(-64)}`;
+      const saved = join(dir, `conflict-${Date.now()}-${name}`);
       if (original) writeFileSync(saved, original);
       conflicts.push(original ? `${file.path} (original saved to ${saved})` : file.path);
       continue;
