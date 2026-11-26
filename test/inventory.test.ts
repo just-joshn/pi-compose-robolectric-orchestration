@@ -92,6 +92,16 @@ class SecondTest : Base()
   expect(result.outcome).toBe("failed");
 });
 
+it("gives a subclass the tests of an open base class in the file", () => {
+  const source = `package a
+open class BaseTest {
+  @Test fun inherited() {}
+}
+class SubTest : BaseTest()
+`;
+  expect(tests(source)).toEqual(["a.BaseTest: inherited", "a.SubTest: inherited"]);
+});
+
 describe("an abstract base class in the target file", () => {
   const source = `package a
 abstract class GreetingContract {

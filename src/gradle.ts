@@ -116,12 +116,10 @@ export function testClasses(source: string, file: string): TestClass[] {
       tests: [
         ...c.tests,
         ...declarationsWithTests
-          .filter(
-            (base) =>
-              base.abstract &&
-              new RegExp(`\\b${base.name}\\s*(?:\\(|[,<{]|$)`).test(
-                c.header.split(":").slice(1).join(":"),
-              ),
+          .filter((base) =>
+            new RegExp(`\\b${base.name}\\s*(?:\\(|[,<{]|$)`).test(
+              c.header.split(":").slice(1).join(":"),
+            ),
           )
           .flatMap((base) => base.tests),
       ],
