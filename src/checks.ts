@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { ofTest, type TestCase } from "./gradle.ts";
+import { ofTest, type TestCase, testClasses } from "./gradle.ts";
 import { isStringRecord } from "./guards.ts";
 import { ignoredDeclarations, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isSource } from "./paths.ts";
@@ -104,13 +104,20 @@ export function editProblem(run: Run, cwd: string): string | undefined {
   if (weakened.length) return `Tests may not be weakened: ${weakened.join("; ")}. Restore them.`;
   if (!run.source) return undefined;
   const source = baselineContent(cwd, run, run.source)?.toString("utf8") ?? read(cwd, run.source);
-  const expected = testFunctions(source).length;
+  const expected = liveTests(source, run.source);
   const files = new Set(run.targets.map((t) => t.file));
-  const actual = [...files].reduce((n, file) => n + testFunctions(read(cwd, file)).length, 0);
+  const actual = [...files].reduce((n, file) => {
+    const before = baselineContent(cwd, run, file)?.toString("utf8") ?? "";
+    return n + liveTests(read(cwd, file), file) - liveTests(before, file);
+  }, 0);
   if (actual < expected)
     return `The source has ${expected} @Test cases but the targets have ${actual}. Migrate every case.`;
   return undefined;
 }
+
+/** Tests JUnit will run: @Ignore'd tests and abstract classes do not count as migrated cases. */
+const liveTests = (source: string, file: string) =>
+  testClasses(source, file).flatMap((c) => c.tests).length;
 
 export const lintErrors = (cwd: string, changed: readonly string[]) =>
   changed

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 
 import {
@@ -63,6 +63,9 @@ function confine(cwd: string, file: string): string {
   return normalize(file);
 }
 
+const notFile = (cwd: string, file: string) =>
+  existsSync(join(cwd, file)) && !statSync(join(cwd, file)).isFile();
+
 function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
   const workflow = workflows[raw.workflow];
   const runsTests = raw.workflow !== "review";
@@ -82,6 +85,7 @@ function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
       reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
     if (!workflow.createsTargets && !existsSync(join(cwd, file)))
       reject(`Target ${file} does not exist.`);
+    if (notFile(cwd, file)) reject(`Target ${file} is not a file.`);
   }
   for (const file of input.subject ?? [])
     if (categorize(file) !== "production" || !existsSync(join(cwd, file)))
@@ -282,6 +286,7 @@ export function addFinding(run: Run, raw: Omit<Finding, "source">, cwd: string):
   if (currentPhase(run)?.kind !== "findings") reject(`Not in a review phase. ${nextStep(run)}`);
   const finding = { ...raw, file: confine(cwd, raw.file) };
   if (!existsSync(join(cwd, finding.file))) reject(`${finding.file} does not exist.`);
+  if (notFile(cwd, finding.file)) reject(`${finding.file} is not a file.`);
   const lines = read(cwd, finding.file).split("\n").length;
   if (finding.line > lines)
     reject(`${finding.file} has ${lines} lines; line ${finding.line} is out of range.`);
