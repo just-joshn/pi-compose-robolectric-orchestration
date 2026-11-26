@@ -182,6 +182,7 @@ export const workflows = {
         "measure",
         "Call compose_test_step. The extension times the targets again and requires every run to beat every baseline run, the median by at least 5%, with every test passing.",
       ),
+      mutation,
     ],
     preserveTests: true,
     createsTargets: false,

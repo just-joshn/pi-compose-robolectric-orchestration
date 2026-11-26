@@ -5,7 +5,7 @@ import { start } from "../src/engine.ts";
 import { type Exec, runTargets, testClasses } from "../src/gradle.ts";
 import { newRun, type TestRun } from "../src/state.ts";
 import { digest, fingerprint } from "../src/tree.ts";
-import { deps, recordTask, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
+import { BREAK, deps, recordTask, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
 
 const tests = (source: string) =>
   testClasses(source, "FooTest.kt").map((c) => `${c.name}: ${c.tests.join(", ")}`);
@@ -53,7 +53,8 @@ class FooTest {
       outputTail: "",
       tree: digest(fingerprint(root)),
     };
-    expect(finalize({ ...run, runs: [measured] }, root).status).toBe("verified");
+    const mutations = [{ ...BREAK, runId: 2, tree: measured.tree, detected: true }];
+    expect(finalize({ ...run, runs: [measured], mutations }, root).status).toBe("verified");
   });
 });
 

@@ -41,7 +41,7 @@ never VERIFIED.
 | `fix-failing` | reproduce (must fail), fix, verify whole class, regression check |
 | `fix-flaky`   | record cases, fix, 5 consecutive passes, negative control        |
 | `refactor`    | passing baseline, simplify tests, verify, negative control       |
-| `performance` | measure, optimize, measure again (≥5% faster, all tests pass)    |
+| `performance` | measure, optimize, ≥5% faster and all passing, negative control  |
 | `migrate`     | move androidTest cases to src/test, verify, negative control     |
 | `review`      | read every target, record findings, extension lint               |
 

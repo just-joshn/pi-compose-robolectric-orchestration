@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { type Deps, start, step } from "../src/engine.ts";
+import { type Deps, mutate, start, step } from "../src/engine.ts";
 import type { Exec } from "../src/gradle.ts";
-import { isRun, newRun } from "../src/state.ts";
-import { deps, recordTask, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
+import { currentPhase, isRun, newRun } from "../src/state.ts";
+import {
+  BREAK,
+  deps,
+  junitGradle,
+  passingTest,
+  recordTask,
+  RESULT_XML,
+  TEST_FILE,
+  workspace,
+  write,
+} from "./helpers.ts";
 
 const input = { workflow: "performance", targets: [{ file: TEST_FILE }] } as const;
 const baseline = (root: string, d: Deps) =>
@@ -89,14 +99,14 @@ describe("a build script that tampers with the test time", () => {
   });
 });
 
+/** Like JUnit: a test that checks the greeting fails when it is broken. */
+const checksGreeting = (body: string, main: string) =>
+  main.includes("BROKEN") && body.includes("onNodeWithText") ? "failed" : "passed";
+
 /** Like Gradle with the extension's init script, timing the nth run at `ms[n]`. */
 function timed(root: string, ms: readonly number[]): Exec {
   let call = 0;
-  return async (_command, args) => {
-    write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest" time="1"/>');
-    recordTask(root, args, { ms: ms[call++] ?? 0 });
-    return { code: 0, stdout: "", stderr: "" };
-  };
+  return junitGradle(root, checksGreeting, () => ms[call++] ?? 0);
 }
 
 describe("a speedup", () => {
@@ -116,6 +126,21 @@ describe("a speedup", () => {
     const d = deps(root, timed(root, [1000, 1100, 1200, 900, 600, 500]));
     const measured = await baseline(root, d);
     optimize(root);
-    expect((await step(measured.run, d)).run.status).toBe("verified");
+    const faster = (await step(measured.run, d)).run;
+    expect((await mutate(faster, BREAK, d)).run.status).toBe("verified");
+  });
+});
+
+describe("a speedup that guts the assertions", () => {
+  it("cannot verify, since the tests no longer detect a broken behavior", async () => {
+    const root = workspace();
+    const d = deps(root, timed(root, [1000, 1000, 1000, 500, 500, 500]));
+    const measured = await baseline(root, d);
+    write(root, TEST_FILE, passingTest.replace('rule.onNodeWithText("Hello")', "rule.onRoot()"));
+    const faster = (await step(measured.run, d)).run;
+    expect(currentPhase(faster)?.kind).toBe("mutation");
+    const missed = (await mutate(faster, BREAK, d)).run;
+    expect(missed.status).toBe("active");
+    expect(missed.statusReason).toMatch(/did not detect the mutation/);
   });
 });

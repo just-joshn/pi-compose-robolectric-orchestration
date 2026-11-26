@@ -47,7 +47,8 @@ official compatibility matrix.
 
 The performance workflow measures median test time before and after in code, requires every
 baseline test to still pass, and needs a change, at least a 5% median speedup, and every run after
-the change faster than every baseline run.
+the change faster than every baseline run. A negative control follows: the tests must still detect
+a break in the code under test, so a speedup cannot drop what they check.
 
 ## Sources (fetched 2026-11-25)
 
