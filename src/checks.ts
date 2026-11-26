@@ -114,9 +114,7 @@ const liveTests = (source: string, file: string) =>
 
 export const testIds = (cwd: string, files: readonly string[]) =>
   [...new Set(files)].flatMap((file) =>
-    testClasses(read(cwd, file), file).flatMap(
-      (c) => c.testIds ?? c.tests.map((n) => `${c.name}.${n}`),
-    ),
+    testClasses(read(cwd, file), file).flatMap((c) => c.testIds),
   );
 
 export const lintErrors = (cwd: string, changed: readonly string[]) =>

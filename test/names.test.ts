@@ -13,7 +13,9 @@ describe("a backticked test name that holds quotes or slashes", () => {
     (name) => {
       const source = named(name);
       expect(testFunctions(source).map((t) => t.name)).toEqual([name]);
-      expect(testClasses(source, "FooTest.kt")).toEqual([{ name: "a.FooTest", tests: [name] }]);
+      expect(testClasses(source, "FooTest.kt")).toMatchObject([
+        { name: "a.FooTest", tests: [name] },
+      ]);
     },
   );
 

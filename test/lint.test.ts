@@ -76,7 +76,7 @@ class SkippedTest {
   });
 
   it("does not hide the @Ignore before it", () => {
-    expect(testClasses(source, "FooTest.kt")).toEqual([
+    expect(testClasses(source, "FooTest.kt")).toMatchObject([
       { name: "a.FooTest", tests: ["plain", "onP"] },
     ]);
   });

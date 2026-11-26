@@ -194,7 +194,7 @@ describe("a file with several top-level test classes", () => {
     "package a\nclass First {\n  @Test fun good() {}\n}\nobject Helpers\nclass Second {\n  @Test fun broken() {}\n}\n";
 
   it("lists every class that holds tests, with its tests", () => {
-    expect(testClasses(source, "Both.kt")).toEqual([
+    expect(testClasses(source, "Both.kt")).toMatchObject([
       { name: "a.First", tests: ["good"] },
       { name: "a.Second", tests: ["broken"] },
     ]);
@@ -462,7 +462,7 @@ class InheritedTest : a.Base()
 class OtherTest {
   @Test fun other() { assert(true) }
 }`;
-    expect(testClasses(source, "app/src/test/java/a/Tests.kt")).toEqual([
+    expect(testClasses(source, "app/src/test/java/a/Tests.kt")).toMatchObject([
       { name: "a.InheritedTest", tests: ["inherited"] },
       { name: "a.OtherTest", tests: ["other"] },
     ]);
@@ -476,7 +476,7 @@ open class Base {
 class Other : support.Base() {
   @Test fun other() { assert(true) }
 }`;
-    expect(testClasses(source, "app/src/test/java/a/Tests.kt")).toEqual([
+    expect(testClasses(source, "app/src/test/java/a/Tests.kt")).toMatchObject([
       { name: "a.Base", tests: ["inherited"] },
       { name: "a.Other", tests: ["other"] },
     ]);
@@ -606,7 +606,7 @@ open class Base {
 class Derived : Base() {
   @Test override fun works() {}
 }`;
-    expect(testClasses(source, TEST_FILE)).toEqual([{ name: "a.Derived", tests: ["works"] }]);
+    expect(testClasses(source, TEST_FILE)).toMatchObject([{ name: "a.Derived", tests: ["works"] }]);
   });
 });
 

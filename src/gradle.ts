@@ -71,7 +71,7 @@ export function gradleConfig(env = process.env) {
 export interface TestClass {
   readonly name: string;
   readonly tests: readonly string[];
-  readonly testIds?: readonly string[];
+  readonly testIds: readonly string[];
 }
 
 const DECLARATION = new RegExp(
@@ -193,12 +193,16 @@ export function testClasses(source: string, file: string): TestClass[] {
         ),
         ...bases.map((test) => `${name}.${test}`),
       ];
-      return c.nested.length ? { name, tests, testIds } : { name, tests };
+      return { name, tests, testIds };
     });
   const withTests = classes.filter((c) => c.tests.length > 0);
   if (withTests.length) return withTests;
   return [
-    { name: classes.at(-1)?.name ?? qualify(basename(file).replace(/\.kt$/, "")), tests: [] },
+    {
+      name: classes.at(-1)?.name ?? qualify(basename(file).replace(/\.kt$/, "")),
+      tests: [],
+      testIds: [],
+    },
   ];
 }
 

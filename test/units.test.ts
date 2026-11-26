@@ -307,7 +307,7 @@ describe("untrusted input at the boundaries", () => {
     expect(parseJUnitXml("")).toEqual([]);
     expect(lintTestSource("app/src/test/A.kt", "")).toEqual([]);
     expect(categorize("")).toBe("other");
-    expect(testClasses("", "A.kt")).toEqual([{ name: "A", tests: [] }]);
+    expect(testClasses("", "A.kt")).toMatchObject([{ name: "A", tests: [] }]);
   });
 });
 
