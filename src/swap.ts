@@ -1,12 +1,14 @@
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { isArrayOf, isRecord, isString } from "./guards.ts";
+import { sha256 } from "./tree.ts";
+
 /** Per-workspace directory outside the repository, so it never shows up in the fingerprint. */
 export function stateDir(cwd: string, env = process.env): string {
   const root = env["PI_COMPOSE_TEST_HOME"] ?? join(homedir(), ".pi", "agent", "compose-test");
-  const dir = join(root, createHash("sha256").update(cwd).digest("hex").slice(0, 16));
+  const dir = join(root, sha256(cwd).slice(0, 16));
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -29,8 +31,12 @@ interface PendingFile {
 }
 
 const PENDING = "swap.json";
-const sha = (data: Buffer | null) =>
-  data ? createHash("sha256").update(data).digest("hex") : null;
+const sha = (data: Buffer | null) => (data ? sha256(data) : null);
+const isPendingFile = (v: unknown): v is PendingFile =>
+  isRecord(v) &&
+  isString(v["path"]) &&
+  (v["original"] === null || isString(v["original"])) &&
+  (v["written"] === null || isString(v["written"]));
 const current = (path: string) => (existsSync(path) ? readFileSync(path) : null);
 
 function put(path: string, content: Buffer | null) {
@@ -79,23 +85,24 @@ export async function withSwappedFiles<T>(
     written: sha(swap.content),
   }));
   atomicWrite(join(dir, PENDING), JSON.stringify(files));
+  let value: T;
+  let conflicts: string[] = [];
   try {
     for (const swap of swaps) put(swap.path, swap.content);
-    const value = await work();
-    return { value, conflicts: restore(dir, files).conflicts };
-  } catch (error) {
-    restore(dir, files);
-    throw error;
+    value = await work();
   } finally {
+    conflicts = restore(dir, files).conflicts;
     rmSync(join(dir, PENDING), { force: true });
   }
+  return { value, conflicts };
 }
 
 /** Repair swaps left behind by a crash. Idempotent. */
 export function recoverSwap(dir: string): { restored: string[]; conflicts: string[] } {
   const path = join(dir, PENDING);
   if (!existsSync(path)) return { restored: [], conflicts: [] };
-  const files = JSON.parse(readFileSync(path, "utf8")) as PendingFile[];
+  const files: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!isArrayOf(files, isPendingFile)) throw new Error(`${path} is not a pending swap record.`);
   const result = restore(dir, files);
   rmSync(path, { force: true });
   return result;

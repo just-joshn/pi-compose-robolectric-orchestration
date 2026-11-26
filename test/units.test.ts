@@ -356,3 +356,48 @@ describe("state and workflows", () => {
     expect(kickoff("goal", "review")).toContain("operator selected the review workflow");
   });
 });
+
+describe("untrusted input at the boundaries", () => {
+  it("rejects a timeout that is not a positive number and defaults empty overrides", () => {
+    for (const bad of ["abc", "0", "-5", "Infinity"])
+      expect(() => gradleConfig({ COMPOSE_TEST_TIMEOUT: bad })).toThrow(/COMPOSE_TEST_TIMEOUT/);
+    expect(gradleConfig({ COMPOSE_TEST_GRADLE: "", COMPOSE_TEST_TASK: "" })).toEqual({
+      gradle: "gradle",
+      task: "testDebugUnitTest",
+      timeoutMs: 1_200_000,
+    });
+  });
+
+  it("rejects persisted runs with wrong field types", () => {
+    const run = newRun("g", null);
+    for (const patch of [
+      { goal: 1 },
+      { runs: {} },
+      { targets: [{ file: 2 }] },
+      { nudges: "1" },
+      { reads: [1] },
+      { source: 3 },
+      { forcedWorkflow: "nope" },
+      { status: "done" },
+      { phaseIndex: 0.5 },
+    ])
+      expect(parseRun({ ...run, ...patch })).toBeNull();
+    expect(parseRun([])).toBeNull();
+    expect(parseRun(undefined)).toBeNull();
+  });
+
+  it("refuses a pending swap record with the wrong shape", () => {
+    const dir = stateDir("/shape", {
+      PI_COMPOSE_TEST_HOME: mkdtempSync(join(tmpdir(), "compose-test-home-")),
+    });
+    writeFileSync(join(dir, "swap.json"), JSON.stringify([{ path: 1 }]));
+    expect(() => recoverSwap(dir)).toThrow(/not a pending swap record/);
+  });
+
+  it("handles empty sources and paths", () => {
+    expect(parseJUnitXml("")).toEqual([]);
+    expect(lintTestSource("app/src/test/A.kt", "")).toEqual([]);
+    expect(categorize("")).toBe("other");
+    expect(className("", "A.kt")).toBe("A");
+  });
+});

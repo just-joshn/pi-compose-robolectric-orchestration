@@ -105,7 +105,7 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
     description:
       "Start the workflow for the active /compose-test request. Targets are local test files under src/test, or any files for review.",
     parameters: Type.Object({
-      workflow: Type.Union(workflowIds.map((id) => Type.Literal(id))),
+      workflow: Type.Unsafe<WorkflowId>({ type: "string", enum: [...workflowIds] }),
       targets: Type.Array(
         Type.Object({ file: Type.String(), method: Type.Optional(Type.String()) }),
         { minItems: 1 },
@@ -115,8 +115,7 @@ export function registerTools(pi: ExtensionAPI, session: Session) {
       ),
       source: Type.Optional(Type.String({ description: "migrate only: the androidTest file" })),
     }),
-    async execute(_id, { workflow: id, targets, subject, source }, _signal, _update, ctx) {
-      const workflow = id as WorkflowId;
+    async execute(_id, { workflow, targets, subject, source }, _signal, _update, ctx) {
       const result = start(
         current(),
         { workflow, targets, ...(subject ? { subject } : {}), ...(source ? { source } : {}) },

@@ -1,4 +1,5 @@
 import type { Outcome, Target, TestCase } from "./gradle.ts";
+import { isArrayOf, isRecord, isString } from "./guards.ts";
 import type { LintFinding } from "./lint.ts";
 import type { Fingerprint } from "./tree.ts";
 import { isWorkflowId, type Phase, type WorkflowId, workflows } from "./workflows.ts";
@@ -116,25 +117,41 @@ export const addRun = (run: Run, testRun: Omit<TestRun, "id">): [Run, TestRun] =
   return [revise(run, { runs: [...run.runs, recorded] }), recorded];
 };
 
-/** Accept a persisted run only if it has the current shape and a reachable phase. */
-export function parseRun(value: unknown): Run | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  const workflow = v["workflow"];
-  const status = v["status"];
-  const phase = v["phaseIndex"];
-  if (v["version"] !== 2 || (workflow !== null && !isWorkflowId(workflow))) return null;
-  if (!STATUSES.some((s) => s === status) || typeof phase !== "number" || !Number.isInteger(phase))
-    return null;
+const isTarget = (v: unknown): v is Target =>
+  isRecord(v) && isString(v["file"]) && (v["method"] === undefined || isString(v["method"]));
+const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
+const isNullable = (v: unknown, guard: (x: unknown) => boolean) => v === null || guard(v);
+
+/** The phase index must point at a phase (or one past the last for a finished run). */
+function reachable(workflow: WorkflowId | null, status: Status, phase: number): boolean {
   const phases = workflow === null ? 0 : workflows[workflow].phases.length;
-  if (
-    phase < 0 ||
-    phase > (status === "active" ? phases - 1 : phases) ||
-    (status === "active" && workflow === null)
-  )
-    return null;
-  return value as Run;
+  if (status === "active" && workflow === null) return false;
+  return phase >= 0 && phase <= (status === "active" ? phases - 1 : phases);
 }
+
+const isStatus = (v: unknown): v is Status => STATUSES.some((s) => s === v);
+const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
+
+function isRun(v: unknown): v is Run {
+  if (!isRecord(v) || v["version"] !== 2) return false;
+  const { workflow, status, phaseIndex } = v;
+  if (!isWorkflowOrNull(workflow) || !isStatus(status) || !isNumber(phaseIndex)) return false;
+  return (
+    isWorkflowOrNull(v["forcedWorkflow"]) &&
+    ["goal", "statusReason"].every((k) => isString(v[k])) &&
+    ["nudges", "backtracks", "reported", "revision"].every((k) => isNumber(v[k])) &&
+    ["subject", "baselineTests", "reads"].every((k) => isArrayOf(v[k], isString)) &&
+    ["runs", "mutations", "findings"].every((k) => isArrayOf(v[k], isRecord)) &&
+    isArrayOf(v["targets"], isTarget) &&
+    isNullable(v["source"], isString) &&
+    isNullable(v["snapshot"], isString) &&
+    isNullable(v["baseline"], isRecord) &&
+    reachable(workflow, status, phaseIndex)
+  );
+}
+
+/** Accept a persisted run only if it has the current shape and a reachable phase. */
+export const parseRun = (value: unknown): Run | null => (isRun(value) ? value : null);
 
 const runLine = (r: TestRun) => {
   const failed = r.cases.filter((c) => c.status === "failed");
@@ -178,7 +195,7 @@ export function report(run: Run): string {
   ].join("\n");
 }
 
-export const MAX_BACKTRACKS = 3;
+const MAX_BACKTRACKS = 3;
 
 /** Send the run back to its last edit phase with the reason, or end it once retries are spent. */
 export function backtrack(run: Run, reason: string): Run {

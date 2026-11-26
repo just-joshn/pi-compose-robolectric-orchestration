@@ -42,11 +42,18 @@ export type Exec = (
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** Overrides come from the environment; the project's gradlew always wins over COMPOSE_TEST_GRADLE. */
-export const gradleConfig = (env = process.env) => ({
-  gradle: env["COMPOSE_TEST_GRADLE"] ?? "gradle",
-  task: env["COMPOSE_TEST_TASK"] ?? "testDebugUnitTest",
-  timeoutMs: Number(env["COMPOSE_TEST_TIMEOUT"] ?? 1200) * 1000,
-});
+export function gradleConfig(env = process.env) {
+  const timeout = Number(env["COMPOSE_TEST_TIMEOUT"] ?? 1200);
+  if (!Number.isFinite(timeout) || timeout <= 0)
+    throw new Error(
+      `COMPOSE_TEST_TIMEOUT must be a positive number of seconds, got "${env["COMPOSE_TEST_TIMEOUT"]}".`,
+    );
+  return {
+    gradle: env["COMPOSE_TEST_GRADLE"] || "gradle",
+    task: env["COMPOSE_TEST_TASK"] || "testDebugUnitTest",
+    timeoutMs: timeout * 1000,
+  };
+}
 
 /** The test class: the last top-level class declared before the first @Test. */
 export function className(source: string, file: string): string {

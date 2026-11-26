@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isStringRecord } from "./guards.ts";
 import { countIgnores, lintTestSource, testFunctions } from "./lint.ts";
 import { backtrack, finish, type Run, type TestRun } from "./state.ts";
 import { atomicWrite } from "./swap.ts";
@@ -34,15 +35,18 @@ export function saveSnapshot(cwd: string, baseline: Fingerprint, dir: string): s
   return file;
 }
 
+function readSnapshot(file: string): Record<string, string> {
+  const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+  if (!isStringRecord(parsed)) throw new Error(`${file} is not a baseline snapshot.`);
+  return parsed;
+}
+
 /** A file's content when the workflow started, or null if it did not exist. */
 export function baselineContent(cwd: string, run: Run, path: string): Buffer | null {
   const { baseline, snapshot } = run;
   if (!baseline) return null;
   if (baseline.files[path] !== undefined || baseline.head === null) {
-    const saved =
-      snapshot && existsSync(snapshot)
-        ? (JSON.parse(readFileSync(snapshot, "utf8")) as Record<string, string>)[path]
-        : undefined;
+    const saved = snapshot && existsSync(snapshot) ? readSnapshot(snapshot)[path] : undefined;
     return saved === undefined ? null : Buffer.from(saved, "base64");
   }
   const shown = spawnSync("git", ["show", `${baseline.head}:./${path}`], {
@@ -60,20 +64,20 @@ export function weakenedTests(run: Run, cwd: string, changed: readonly string[])
   const reshape = new Set(
     run.workflow === "refactor" ? run.targets.map((t) => t.file) : run.source ? [run.source] : [],
   );
-  const problems: string[] = [];
+  const weakened: string[] = [];
   for (const path of changed.filter((p) => categorize(p) === "test" && isSource(p))) {
     const before = baselineContent(cwd, run, path)?.toString("utf8");
     if (before === undefined) continue;
     const exists = existsSync(join(cwd, path));
     const after = exists ? read(cwd, path) : "";
-    if (!exists && !reshape.has(path)) problems.push(`${path} was deleted`);
+    if (!exists && !reshape.has(path)) weakened.push(`${path} was deleted`);
     const names = new Set(testFunctions(after).map((t) => t.name));
     const lost = testFunctions(before).filter((t) => !names.has(t.name));
     if (exists && lost.length && !reshape.has(path))
-      problems.push(`${path} lost tests: ${lost.map((t) => t.name).join(", ")}`);
-    if (countIgnores(after) > countIgnores(before)) problems.push(`${path} gained @Ignore`);
+      weakened.push(`${path} lost tests: ${lost.map((t) => t.name).join(", ")}`);
+    if (countIgnores(after) > countIgnores(before)) weakened.push(`${path} gained @Ignore`);
   }
-  return problems;
+  return weakened;
 }
 
 export const lintErrors = (cwd: string, changed: readonly string[]) =>

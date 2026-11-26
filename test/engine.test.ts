@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -376,5 +376,17 @@ describe("other workflows", () => {
     const blocked = block(twice, "offline");
     expect(blocked.run.statusReason).toMatch(/runs #1, #2/);
     expect(() => block(blocked.run, "again")).toThrow(/No active workflow/);
+  });
+});
+
+describe("a corrupt baseline snapshot", () => {
+  it("stops the regression check with the file named", async () => {
+    const root = workspace();
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
+    const { run, d } = begin(root, { workflow: "fix-failing" });
+    const fixing = (await step(run, d)).run;
+    writeFileSync(fixing.snapshot ?? "", "[1]");
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
+    await expect(step(fixing, d)).rejects.toThrow(/is not a baseline snapshot/);
   });
 });

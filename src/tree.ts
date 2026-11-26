@@ -15,17 +15,14 @@ export interface Fingerprint {
 }
 
 const OUTPUT_DIR = /(^|\/)(build|\.gradle|\.kotlin|\.idea|node_modules|\.cxx|\.git)(\/|$)/;
-const sha = (data: Buffer | string) => createHash("sha256").update(data).digest("hex").slice(0, 16);
+export const sha256 = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
+const sha = (data: Buffer | string) => sha256(data).slice(0, 16);
 
 /** Hash a file, or a symlink's target path without following it. */
 function hashFile(path: string): string {
-  try {
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) return `link:${sha(readlinkSync(path))}`;
-    return stat.isFile() ? sha(readFileSync(path)) : "deleted";
-  } catch {
-    return "deleted";
-  }
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (stat?.isSymbolicLink()) return `link:${sha(readlinkSync(path))}`;
+  return stat?.isFile() ? sha(readFileSync(path)) : "deleted";
 }
 
 function git(cwd: string, args: readonly string[]) {

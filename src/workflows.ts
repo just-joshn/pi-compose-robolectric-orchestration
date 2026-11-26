@@ -216,9 +216,9 @@ export const workflows = {
 } as const satisfies Record<string, Workflow>;
 
 export type WorkflowId = keyof typeof workflows;
-export const workflowIds = Object.keys(workflows) as WorkflowId[];
 export const isWorkflowId = (value: unknown): value is WorkflowId =>
-  workflowIds.some((id) => id === value);
+  typeof value === "string" && Object.hasOwn(workflows, value);
+export const workflowIds: readonly WorkflowId[] = Object.keys(workflows).filter(isWorkflowId);
 export const allowedChanges = (id: WorkflowId): ReadonlySet<Category> =>
   new Set(workflows[id].phases.flatMap((p): readonly Category[] => p.scope));
 
