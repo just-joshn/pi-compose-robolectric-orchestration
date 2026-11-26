@@ -105,8 +105,8 @@ function supertypes(header: string): string[] {
     }
     if (ch === "(") parens++;
     if (ch === ")") parens--;
-    if (ch === "<") angles++;
-    if (ch === ">" && header[i - 1] !== "-") angles--;
+    if (parens === 0 && ch === "<") angles++;
+    if (parens === 0 && ch === ">" && header[i - 1] !== "-") angles--;
   }
   if (start >= 0) names.push(name(header.slice(start)));
   return names;

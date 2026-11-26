@@ -468,14 +468,17 @@ class OtherTest {
     ]);
   });
 
-  it("runs a failing inherited test with a package-qualified superclass", async () => {
+  it.each([
+    ["a package-qualified superclass", "class Leaf : a.Base()"],
+    ["a comparison in a constructor default", "class Leaf(val enabled: Boolean = 2 > 1) : Base()"],
+  ])("runs a failing inherited test with %s", async (_case, declaration) => {
     const root = workspace({
       test: `package a
 import org.junit.Test
 abstract class Base {
   @Test fun inherited() { assert(false) }
 }
-class Leaf : a.Base()
+${declaration}
 class Other {
   @Test fun passes() { assert(true) }
 }
