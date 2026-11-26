@@ -91,7 +91,6 @@ export function fingerprint(cwd: string): Fingerprint {
   };
 }
 
-/** Paths whose content differs between two fingerprints of the same workspace. */
 export function changedPaths(cwd: string, a: Fingerprint, b: Fingerprint): string[] {
   const changed = new Set(
     [...Object.keys(a.files), ...Object.keys(b.files)].filter((p) => a.files[p] !== b.files[p]),

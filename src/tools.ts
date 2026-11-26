@@ -13,7 +13,7 @@ import {
   type StepResult,
   WorkflowError,
 } from "./engine.ts";
-import { currentPhase, parseRun, type Run } from "./state.ts";
+import { currentPhase, isRun, type Run } from "./state.ts";
 import { stateDir } from "./swap.ts";
 import { skillDir, type WorkflowId, workflowIds, workflows } from "./workflows.ts";
 
@@ -48,8 +48,8 @@ export class Session {
   restore(ctx: ExtensionContext): void {
     this.current = null;
     for (const entry of ctx.sessionManager.getBranch())
-      if (entry.type === "custom" && entry.customType === STATE_ENTRY)
-        this.current = parseRun(entry.data) ?? this.current;
+      if (entry.type === "custom" && entry.customType === STATE_ENTRY && isRun(entry.data))
+        this.current = entry.data;
   }
 
   /** Serialize Gradle runs and file swaps, even when tool calls run in parallel. */
@@ -88,14 +88,12 @@ export class Session {
     return {
       cwd: ctx.cwd,
       dir: stateDir(ctx.cwd),
-      exec: async (command, args, options) => {
-        const r = await this.pi.exec(command, [...args], {
+      exec: (command, args, options) =>
+        this.pi.exec(command, [...args], {
           cwd: options.cwd,
           timeout: options.timeoutMs,
           ...(options.signal ? { signal: options.signal } : {}),
-        });
-        return { code: r.code, stdout: r.stdout, stderr: r.stderr };
-      },
+        }),
       ...(signal ? { signal } : {}),
     };
   }

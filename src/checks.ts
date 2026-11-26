@@ -15,7 +15,6 @@ export const read = (cwd: string, file: string) =>
 export const changes = (run: Run, cwd: string) =>
   run.baseline ? changedPaths(cwd, run.baseline, fingerprint(cwd)) : [];
 
-/** Changed paths outside what the phases so far may change. */
 export function scopeViolations(run: Run, cwd: string): string[] {
   const phases = run.workflow ? workflows[run.workflow].phases.slice(0, run.phaseIndex + 1) : [];
   const allowed = new Set(phases.flatMap((p) => p.scope));
@@ -41,7 +40,6 @@ function readSnapshot(file: string): Record<string, string> {
   return parsed;
 }
 
-/** A file's content when the workflow started, or null if it did not exist. */
 export function baselineContent(cwd: string, run: Run, path: string): Buffer | null {
   const { baseline, snapshot } = run;
   if (!baseline) return null;
@@ -110,7 +108,6 @@ export const lintErrors = (cwd: string, changed: readonly string[]) =>
 const passed = (r: TestRun, name: string) =>
   r.cases.some((c) => c.status === "passed" && (c.name === name || c.name.startsWith(`${name}[`)));
 
-/** Every check the VERIFIED status depends on. */
 function problems(run: Run, cwd: string): string[] {
   if (!run.workflow) return ["No workflow ran."];
   const workflow = workflows[run.workflow];

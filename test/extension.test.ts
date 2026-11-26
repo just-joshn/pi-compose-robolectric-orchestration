@@ -77,7 +77,6 @@ function fakePi(root: string, exec: Exec) {
 
 type Outcome = { block?: boolean; continue?: boolean; entries?: { content: string }[] } | undefined;
 
-/** Read a handler's return value into the fields the tests assert on. */
 function toOutcome(value: unknown): Outcome {
   if (!isRecord(value)) return undefined;
   const entries = isArrayOf(value["entries"], isRecord)
@@ -109,7 +108,6 @@ async function runHandlers(
   return runHandlers(rest, event, ctx, outcome);
 }
 
-/** Load the extension into a fake Pi and expose the calls a test drives. */
 function harness(root: string, exec: Exec = fakeGradle(root, behavior).exec) {
   const { pi, ctx, recorded } = fakePi(root, exec);
   if (!isExtensionApi(pi)) throw new Error("fake Pi is missing an ExtensionAPI member");

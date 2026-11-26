@@ -248,13 +248,11 @@ function complete(run: Run, deps: Deps, message: string): StepResult {
   return result(done, message, nextStep(done));
 }
 
-/** The phases the model completes by calling compose_test_step. */
 const COMPLETERS: Partial<Record<PhaseKind, (run: Run, deps: Deps) => Run>> = {
   edit: completeEdit,
   findings: completeFindings,
 };
 
-/** Run extension-owned phases one after another until the model is needed again. */
 async function runOwned(run: Run, deps: Deps, messages: readonly string[]): Promise<StepResult> {
   const phase = currentPhase(run);
   const runner = phase && RUNNERS[phase.kind];
@@ -370,9 +368,9 @@ const ranNothing = (r: TestRun) => r.outcome === "build-error" || r.outcome === 
 
 export function addFinding(run: Run, finding: Omit<Finding, "source">, cwd: string): StepResult {
   if (currentPhase(run)?.kind !== "findings") reject(`Not in a review phase. ${nextStep(run)}`);
-  const lines = read(cwd, finding.file).split("\n").length;
   if (!existsSync(join(cwd, finding.file))) reject(`${finding.file} does not exist.`);
-  if (!Number.isInteger(finding.line) || finding.line < 1 || finding.line > lines)
+  const lines = read(cwd, finding.file).split("\n").length;
+  if (finding.line > lines)
     reject(`${finding.file} has ${lines} lines; line ${finding.line} is out of range.`);
   if (run.findings.some((f) => key(f) === key(finding))) return result(run, "Already recorded.");
   return result(

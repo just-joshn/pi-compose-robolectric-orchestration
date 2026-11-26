@@ -69,7 +69,7 @@ Source: developer.android.com/develop/ui/compose/testing/semantics, /apis, /comm
 - `testTag` is a test-only handle. Prefer user-facing text, content description or role, and use
   a tag when none of those exists. [judgment, consistent with the official finder ordering]
 
-## Anti-patterns that reviews and audits flag
+## Anti-patterns that reviews flag
 
 Rules marked (lint) are checked by the extension in code. The rest need a reviewer's judgment.
 

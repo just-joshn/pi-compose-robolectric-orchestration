@@ -25,7 +25,7 @@ dependencies {
 - Robolectric downloads `android-all-instrumented` jars for each SDK on first use. Offline CI
   needs them cached. [official: configuring, offline mode]
 
-## Verified version set (this package's fixture, 2026-11-25)
+## Verified version set (2026-11-25)
 
 JDK 25.0.5, Gradle 9.8.0, AGP 9.5.3 with built-in Kotlin, Kotlin Compose plugin 2.4.21, Compose
 BOM 2026.11.01 (ui-test 1.13.0), Robolectric 4.18.1, `@Config(sdk = [36])`. compileSdk must be
@@ -46,7 +46,7 @@ official compatibility matrix.
   [gradle docs; judgment per project]
 
 The performance workflow measures median test time before and after in code, requires every
-baseline test to still pass, and needs a minimum speedup (default 5%).
+baseline test to still pass, and needs at least a 5% speedup.
 
 ## Sources (fetched 2026-11-25)
 

@@ -132,7 +132,8 @@ function reachable(workflow: WorkflowId | null, status: Status, phase: number): 
 const isStatus = (v: unknown): v is Status => STATUSES.some((s) => s === v);
 const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
 
-function isRun(v: unknown): v is Run {
+/** A persisted run with the current shape and a reachable phase. */
+export function isRun(v: unknown): v is Run {
   if (!isRecord(v) || v["version"] !== 2) return false;
   const { workflow, status, phaseIndex } = v;
   if (!isWorkflowOrNull(workflow) || !isStatus(status) || !isNumber(phaseIndex)) return false;
@@ -150,10 +151,6 @@ function isRun(v: unknown): v is Run {
   );
 }
 
-/** Accept a persisted run only if it has the current shape and a reachable phase. */
-export const parseRun = (value: unknown): Run | null => (isRun(value) ? value : null);
-
-/** The current phase and its instruction, or the final status. */
 export function nextStep(run: Run): string {
   const phase = currentPhase(run);
   if (!phase || !run.workflow) return `Workflow ${run.status}: ${run.statusReason}`;
@@ -161,7 +158,6 @@ export function nextStep(run: Run): string {
   return `Phase ${run.phaseIndex + 1}/${workflows[run.workflow].phases.length} "${phase.id}": ${phase.instruction}${why}`;
 }
 
-/** One run as shown to the model after a phase. */
 export function describeRun(r: TestRun): string {
   const failed = r.cases.filter((c) => c.status === "failed");
   return [

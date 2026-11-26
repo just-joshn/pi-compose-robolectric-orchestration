@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { className, gradleConfig, parseJUnitXml, runTargets } from "../src/gradle.ts";
 import { lintTestSource } from "../src/lint.ts";
-import { addRun, finish, newRun, parseRun, report } from "../src/state.ts";
+import { addRun, finish, isRun, newRun, report } from "../src/state.ts";
 import { recoverSwap, stateDir, withSwappedFiles } from "../src/swap.ts";
 import { changedPaths, digest, fingerprint } from "../src/tree.ts";
 import { categorize, kickoff, methodology, workflowIds, workflows } from "../src/workflows.ts";
@@ -290,14 +290,12 @@ describe("temporary file swaps", () => {
 describe("persisted state", () => {
   it("accepts only well-formed persisted runs", () => {
     const run = newRun("g", null);
-    expect(parseRun(run)).toEqual(run);
-    expect(parseRun(null)).toBeNull();
-    expect(parseRun({ ...run, version: 1 })).toBeNull();
-    expect(parseRun({ ...run, workflow: "nope" })).toBeNull();
-    expect(
-      parseRun({ ...run, status: "active", workflow: "write-test", phaseIndex: 99 }),
-    ).toBeNull();
-    expect(parseRun({ ...run, status: "active" })).toBeNull();
+    expect(isRun(run)).toBe(true);
+    expect(isRun(null)).toBe(false);
+    expect(isRun({ ...run, version: 1 })).toBe(false);
+    expect(isRun({ ...run, workflow: "nope" })).toBe(false);
+    expect(isRun({ ...run, status: "active", workflow: "write-test", phaseIndex: 99 })).toBe(false);
+    expect(isRun({ ...run, status: "active" })).toBe(false);
   });
 });
 
@@ -386,9 +384,9 @@ describe("untrusted input at the boundaries", () => {
       { status: "done" },
       { phaseIndex: 0.5 },
     ])
-      expect(parseRun({ ...run, ...patch })).toBeNull();
-    expect(parseRun([])).toBeNull();
-    expect(parseRun(undefined)).toBeNull();
+      expect(isRun({ ...run, ...patch })).toBe(false);
+    expect(isRun([])).toBe(false);
+    expect(isRun(undefined)).toBe(false);
   });
 
   it("refuses a pending swap record with the wrong shape", () => {

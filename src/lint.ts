@@ -83,7 +83,6 @@ interface KotlinFunction {
   readonly isTest: boolean;
 }
 
-/** Offsets of every character in `chars`, in ascending order. */
 function offsets(text: string, chars: string): number[] {
   const found: number[] = [];
   for (let i = 0; i < text.length; i++) if (chars.includes(text.charAt(i))) found.push(i);
@@ -188,7 +187,6 @@ function functions(code: string): KotlinFunction[] {
   return found;
 }
 
-/** Find `@Test fun name(...)` functions with their bodies, ignoring comments and strings. */
 export const testFunctions = (source: string) =>
   functions(stripCode(source)).filter((f) => f.isTest);
 

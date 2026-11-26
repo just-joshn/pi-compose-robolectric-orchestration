@@ -107,7 +107,6 @@ describe("write-test negative control", () => {
   });
 });
 
-/** Call compose_test_step `times` times in a row. */
 async function stepTimes(run: Run, d: ReturnType<typeof deps>, times: number): Promise<Run> {
   return times === 0 ? run : stepTimes((await step(run, d)).run, d, times - 1);
 }

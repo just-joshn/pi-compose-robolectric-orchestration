@@ -24,7 +24,6 @@ function say(ctx: ExtensionContext, message: string) {
   else process.stdout.write(`${message}\n`);
 }
 
-/** Why an edit/write call is refused, if it is. */
 function editBlock(run: Run, cwd: string, path: string): string | undefined {
   if (run.status === "routing")
     return "compose-test: call compose_test_start before editing files.";

@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 export type Category = "test" | "build" | "production" | "other";
 
-/** What a path is, for deciding which phase may change it. */
 export function categorize(path: string): Category {
   const p = path.replaceAll("\\", "/");
   if (/(^|\/)src\/(test|androidTest|sharedTest)[A-Za-z]*\/|(^|\/)robolectric\.properties$/.test(p))

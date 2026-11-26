@@ -22,7 +22,7 @@ Source: developer.android.com/develop/ui/compose/testing/synchronization and /mi
 | Fix for "still Loading" failures | -                                          | `waitForIdle()` or `runOnIdle { }` before asserting |
 | Run tasks without advancing time | -                                          | `mainClock.scheduler.runCurrent()`                  |
 
-Measured by this package's prototype on Compose ui-test 1.13.0 and Robolectric 4.18.1: a
+Measured on Compose ui-test 1.13.0 and Robolectric 4.18.1: a
 `scope.launch { hits++ }` issued from `runOnUiThread` showed `hits == 1` immediately under v1 and
 `hits == 0` under v2 until `waitForIdle()`.
 
