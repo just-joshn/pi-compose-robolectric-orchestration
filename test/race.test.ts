@@ -37,6 +37,7 @@ describe("a file edited while Gradle runs", () => {
     const { run, d } = begin(root, { workflow: "fix-flaky" }, editedDuring(root, 4));
     const fixing = (await step(run, d)).run;
     expect(currentPhase(fixing)?.id).toBe("fix");
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello" // deterministic\n');
     await expect(step(fixing, d)).rejects.toThrow(/changed while Gradle ran/);
   });
 
@@ -51,9 +52,9 @@ describe("a file edited while Gradle runs", () => {
       return "pass";
     });
     const fixing = (await step(run, d)).run;
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
     await expect(step(fixing, d)).rejects.toThrow(/changed while Gradle ran/);
     write(root, TEST_FILE, passingTest);
-    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
     expect((await step(fixing, d)).run.status).toBe("verified");
   });
 });

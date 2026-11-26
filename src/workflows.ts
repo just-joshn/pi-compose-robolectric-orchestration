@@ -22,6 +22,8 @@ export interface Phase {
   /** Categories the phase may change; only edit phases change anything. */
   readonly scope: readonly Category[];
   readonly instruction: string;
+  /** Why the edit phase cannot end with nothing changed since start, if it cannot. */
+  readonly ifUnchanged?: string;
 }
 
 export interface Workflow {
@@ -38,11 +40,17 @@ const TESTS: readonly Category[] = ["test"];
 const TESTS_AND_BUILD: readonly Category[] = ["test", "build"];
 const ANY: readonly Category[] = ["test", "build", "production", "other"];
 
-const edit = (id: string, scope: readonly Category[], instruction: string): Phase => ({
+const edit = (
+  id: string,
+  scope: readonly Category[],
+  instruction: string,
+  ifUnchanged?: string,
+): Phase => ({
   id,
   kind: "edit",
   scope,
   instruction: `${instruction} Call compose_test_step when done.`,
+  ...(ifUnchanged ? { ifUnchanged } : {}),
 });
 const auto = (id: string, kind: PhaseKind, instruction: string): Phase => ({
   id,
@@ -105,6 +113,7 @@ export const workflows = {
         "fix",
         ANY,
         "Trace the failure to its root cause and fix it there, in production or test code. Do not weaken, delete or @Ignore tests.",
+        "Nothing changed since start, so a passing run now would only show that the test fails only sometimes. A test that fails only sometimes belongs in fix-flaky.",
       ),
       verify,
       auto(
@@ -129,6 +138,7 @@ export const workflows = {
         "fix",
         ANY,
         "Find the source of nondeterminism (real time, unsynchronized coroutine, shared state, rogue thread) and remove it. Retries, sleeps and @Ignore are not fixes.",
+        "Nothing changed since start, so passing stress runs would prove nothing. Find the source of nondeterminism and remove it.",
       ),
       auto(
         "stress",

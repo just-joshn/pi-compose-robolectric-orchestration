@@ -6,7 +6,7 @@ import { ofTest, type TestCase } from "./gradle.ts";
 import { isStringRecord } from "./guards.ts";
 import { ignoredDeclarations, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isSource } from "./paths.ts";
-import { backtrack, finish, ranNothing, type Run, type TestRun } from "./state.ts";
+import { backtrack, currentPhase, finish, ranNothing, type Run, type TestRun } from "./state.ts";
 import { atomicWrite } from "./swap.ts";
 import { changedPaths, committed, digest, type Fingerprint, fingerprint } from "./tree.ts";
 import { allowedChanges, workflows } from "./workflows.ts";
@@ -96,6 +96,8 @@ export function editProblem(run: Run, cwd: string): string | undefined {
   if (violations.length)
     return `This phase may not change: ${violations.join(", ")}. Revert them, then call compose_test_step again.`;
   const changed = changes(run, cwd);
+  const unchanged = changed.length === 0 ? currentPhase(run)?.ifUnchanged : undefined;
+  if (unchanged) return unchanged;
   const lint = lintErrors(cwd, changed).map((f) => `${f.file}:${f.line} ${f.rule}: ${f.message}`);
   if (lint.length) return `Fix these before continuing:\n${lint.join("\n")}`;
   const weakened = weakenedTests(run, cwd, changed);

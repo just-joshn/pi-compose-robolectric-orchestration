@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { mutate, step } from "../src/engine.ts";
 import { testClasses } from "../src/gradle.ts";
 import { testFunctions } from "../src/lint.ts";
-import { begin, BREAK, passingTest, workspace } from "./helpers.ts";
+import { begin, BREAK, MAIN_FILE, passingTest, workspace, write } from "./helpers.ts";
 
 const named = (name: string) => passingTest.replace("fun showsGreeting()", `fun \`${name}\`()`);
 
@@ -22,6 +22,7 @@ describe("a backticked test name that holds quotes or slashes", () => {
     const { run, d } = begin(root, { workflow: "fix-flaky" });
     expect(run.baselineTests).toEqual(['a.FooTest.shows "Hello" greeting']);
     const fixing = (await step(run, d)).run;
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello" // deterministic\n');
     const stable = (await step(fixing, d)).run;
     expect((await mutate(stable, BREAK, d)).run.status).toBe("verified");
   });

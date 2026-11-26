@@ -283,6 +283,7 @@ describe("flaky, refactor and performance workflows", () => {
     );
     const fixing = (await step(run, d)).run;
     expect(currentPhase(fixing)?.id).toBe("fix");
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello" // first try\n');
     const still = await step(fixing, d);
     expect(currentPhase(still.run)?.id).toBe("fix");
     expect(still.run.statusReason).toMatch(/stress runs did not pass/);
