@@ -320,3 +320,15 @@ describe("round 12 gaps", () => {
     expect(changedPaths(root, before, fingerprint(root))).toEqual([path]);
   });
 });
+
+describe("source outside migrate", () => {
+  it("is refused, so it cannot exempt a test file from the deletion check", () => {
+    const root = workspace();
+    const input: StartInput = {
+      workflow: "write-test",
+      source: TEST_FILE,
+      targets: [{ file: TEST_FILE }],
+    };
+    expect(() => start(newRun("g", null), input, root)).toThrow(/source is only for migrate/);
+  });
+});

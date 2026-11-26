@@ -84,6 +84,7 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
     /(^|\/)src\/androidTest\/.*\.kt$/.test(source) && existsSync(join(cwd, source));
   if (input.workflow === "migrate" && !androidTest)
     reject("migrate needs source: an existing androidTest .kt file.");
+  if (input.workflow !== "migrate" && source) reject("source is only for migrate.");
 }
 
 export function start(run: Run, input: StartInput, cwd: string, dir = stateDir(cwd)): StepResult {
