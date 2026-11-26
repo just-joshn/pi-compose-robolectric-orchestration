@@ -316,7 +316,7 @@ export function lintTestSource(file: string, source: string): LintFinding[] {
   return findings.toSorted((a, b) => a.line - b.line);
 }
 
-/** The function or class each @Ignore applies to, so moving one onto another test counts. */
+/** Names of the functions, classes or objects each @Ignore applies to. */
 export function ignoredDeclarations(source: string): string[] {
   const code = stripCode(source);
   const declaration = "[\\s\\S]*?\\b(?:fun|class|object)\\s+(?:<[^>]*>\\s*)?(`[^`]+`|\\w+)";

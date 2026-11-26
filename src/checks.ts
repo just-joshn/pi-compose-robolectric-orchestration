@@ -57,6 +57,13 @@ export function baselineContent(cwd: string, run: Run, path: string): Buffer | n
   return shown.status === 0 ? shown.stdout : null;
 }
 
+/** How many tests carry each name; nested classes may reuse one. */
+const testCounts = (source: string) =>
+  testFunctions(source).reduce(
+    (m, t) => m.set(t.name, (m.get(t.name) ?? 0) + 1),
+    new Map<string, number>(),
+  );
+
 /**
  * Test files that lost @Test functions, gained @Ignore, or were deleted. A refactor's targets may
  * merge tests, and a migration may delete the source it moved.
@@ -72,10 +79,10 @@ export function weakenedTests(run: Run, cwd: string, changed: readonly string[])
     const exists = existsSync(join(cwd, path));
     const after = exists ? read(cwd, path) : "";
     if (!exists && !reshape.has(path)) weakened.push(`${path} was deleted`);
-    const names = new Set(testFunctions(after).map((t) => t.name));
-    const lost = testFunctions(before).filter((t) => !names.has(t.name));
+    const kept = testCounts(after);
+    const lost = [...testCounts(before)].filter(([name, n]) => (kept.get(name) ?? 0) < n);
     if (exists && lost.length && !reshape.has(path))
-      weakened.push(`${path} lost tests: ${lost.map((t) => t.name).join(", ")}`);
+      weakened.push(`${path} lost tests: ${lost.map(([name]) => name).join(", ")}`);
     const wasIgnored = new Set(ignoredDeclarations(before));
     const ignored = ignoredDeclarations(after).filter((name) => !wasIgnored.has(name));
     if (ignored.length) weakened.push(`${path} gained @Ignore on ${ignored.join(", ")}`);

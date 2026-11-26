@@ -80,9 +80,10 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
     if (categorize(file) !== "production" || !existsSync(join(cwd, file)))
       reject(`Subject ${file} is not an existing production source file.`);
   const source = input.source ?? "";
-  const androidTest = /(^|\/)src\/androidTest\//.test(source) && existsSync(join(cwd, source));
+  const androidTest =
+    /(^|\/)src\/androidTest\/.*\.kt$/.test(source) && existsSync(join(cwd, source));
   if (input.workflow === "migrate" && !androidTest)
-    reject("migrate needs source: an existing androidTest file.");
+    reject("migrate needs source: an existing androidTest .kt file.");
 }
 
 export function start(run: Run, input: StartInput, cwd: string, dir = stateDir(cwd)): StepResult {
@@ -359,6 +360,7 @@ const ranNothing = (r: TestRun) => r.outcome === "build-error" || r.outcome === 
 
 export function addFinding(run: Run, finding: Omit<Finding, "source">, cwd: string): StepResult {
   if (currentPhase(run)?.kind !== "findings") reject(`Not in a review phase. ${nextStep(run)}`);
+  if (!inside(cwd, finding.file)) reject(`${finding.file} is outside the workspace.`);
   if (!existsSync(join(cwd, finding.file))) reject(`${finding.file} does not exist.`);
   const lines = read(cwd, finding.file).split("\n").length;
   if (finding.line > lines)

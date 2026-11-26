@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { editProblem, finalize } from "../src/checks.ts";
-import { mutate, start, type StartInput, step } from "../src/engine.ts";
+import { addFinding, mutate, start, type StartInput, step } from "../src/engine.ts";
 import { isRun, newRun, type TestRun } from "../src/state.ts";
 import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
 import { digest, fingerprint } from "../src/tree.ts";
@@ -202,5 +202,46 @@ describe("moving an existing @Ignore", () => {
     );
     write(root, TEST_FILE, moved);
     expect(editProblem(run, root)).toMatch(/gained @Ignore on showsGreeting/);
+  });
+});
+
+const nested = (second: string) =>
+  `class FooTest {\n  class X {\n    @Test fun same() { assert(true) }\n  }\n  class Y {\n${second}  }\n}\n`;
+
+describe("round 8 gaps", () => {
+  it("rejects a Java migration source the Kotlin scanner cannot count", () => {
+    const root = workspace({ test: null });
+    const source = "app/src/androidTest/java/a/FooDeviceTest.java";
+    write(root, source, "class FooDeviceTest { @Test public void a() {} }");
+    const input: StartInput = { workflow: "migrate", source, targets: [{ file: TEST_FILE }] };
+    expect(() => start(newRun("g", null), input, root)).toThrow(/androidTest \.kt file/);
+  });
+
+  it("notices one of two same-named tests in nested classes disappearing", () => {
+    const root = workspace({ test: nested("    @Test fun same() { assert(true) }\n") });
+    const run = start(
+      newRun("g", null),
+      { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
+    write(root, TEST_FILE, nested(""));
+    expect(editProblem(run, root)).toMatch(/lost tests: same/);
+  });
+
+  it("refuses a review finding outside the workspace", () => {
+    const { root } = nestedWorkspace();
+    const run = start(
+      newRun("g", null),
+      { workflow: "review", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
+    const finding = {
+      file: `../${MAIN_FILE}`,
+      line: 1,
+      rule: "r",
+      severity: "warning",
+      message: "m",
+    } as const;
+    expect(() => addFinding(run, finding, root)).toThrow(/outside the workspace/);
   });
 });
