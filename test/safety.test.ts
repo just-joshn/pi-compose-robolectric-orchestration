@@ -345,3 +345,15 @@ describe("committing during a run", () => {
     expect(changedPaths(root, before, fingerprint(root))).toEqual([MAIN_FILE]);
   });
 });
+
+describe("two method targets in one file", () => {
+  it("inventory the file's tests once", () => {
+    const root = workspace({ test: twoTests("second") });
+    const targets = [
+      { file: TEST_FILE, method: "second" },
+      { file: TEST_FILE, method: "showsGreeting" },
+    ];
+    const run = start(newRun("g", null), { workflow: "fix-flaky", targets }, root).run;
+    expect(run.baselineTests).toEqual(["a.FooTest.second", "a.FooTest.showsGreeting"]);
+  });
+});

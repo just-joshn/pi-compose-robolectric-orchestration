@@ -99,8 +99,8 @@ export function start(run: Run, input: StartInput, cwd: string, dir = stateDir(c
     phaseIndex: 0,
     baseline,
     snapshot: saveSnapshot(cwd, baseline, dir),
-    baselineTests: input.targets.flatMap((t) =>
-      testClasses(read(cwd, t.file), t.file).flatMap((c) => c.tests.map((n) => `${c.name}.${n}`)),
+    baselineTests: [...new Set(input.targets.map((t) => t.file))].flatMap((file) =>
+      testClasses(read(cwd, file), file).flatMap((c) => c.tests.map((n) => `${c.name}.${n}`)),
     ),
   });
   return result(started, `Started ${input.workflow}.`, nextStep(started));
