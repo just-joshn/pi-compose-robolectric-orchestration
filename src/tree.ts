@@ -94,8 +94,8 @@ export function changedPaths(cwd: string, a: Fingerprint, b: Fingerprint): strin
   );
   if (a.head && b.head && a.head !== b.head)
     for (const path of (
-      git(cwd, ["diff", "--relative", "--no-renames", "--name-only", a.head, b.head]) ?? ""
-    ).split("\n"))
+      git(cwd, ["diff", "-z", "--relative", "--no-renames", "--name-only", a.head, b.head]) ?? ""
+    ).split("\0"))
       if (path && (a.files[path] === undefined || a.files[path] !== b.files[path]))
         changed.add(path);
   return [...changed].toSorted();

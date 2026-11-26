@@ -58,12 +58,16 @@ export function baselineContent(cwd: string, run: Run, path: string): Buffer | n
   return shown.status === 0 ? shown.stdout : null;
 }
 
-/** How many tests carry each name; nested classes may reuse one. */
-const testCounts = (source: string) =>
-  testFunctions(source).reduce(
-    (m, t) => m.set(t.name, (m.get(t.name) ?? 0) + 1),
-    new Map<string, number>(),
-  );
+const counts = (names: readonly string[]) =>
+  names.reduce((m, n) => m.set(n, (m.get(n) ?? 0) + 1), new Map<string, number>());
+
+/** Names that occur more often in `a` than in `b`; nested classes may reuse a test name. */
+function surplus(a: readonly string[], b: readonly string[]): string[] {
+  const inB = counts(b);
+  return [...counts(a)].filter(([name, n]) => (inB.get(name) ?? 0) < n).map(([name]) => name);
+}
+
+const testNames = (source: string) => testFunctions(source).map((t) => t.name);
 
 /**
  * Test files that lost @Test functions, gained @Ignore, or were deleted. A refactor's targets may
@@ -80,12 +84,10 @@ export function weakenedTests(run: Run, cwd: string, changed: readonly string[])
     const exists = existsSync(join(cwd, path));
     const after = exists ? read(cwd, path) : "";
     if (!exists && !reshape.has(path)) weakened.push(`${path} was deleted`);
-    const kept = testCounts(after);
-    const lost = [...testCounts(before)].filter(([name, n]) => (kept.get(name) ?? 0) < n);
+    const lost = surplus(testNames(before), testNames(after));
     if (exists && lost.length && !reshape.has(path))
-      weakened.push(`${path} lost tests: ${lost.map(([name]) => name).join(", ")}`);
-    const wasIgnored = new Set(ignoredDeclarations(before));
-    const ignored = ignoredDeclarations(after).filter((name) => !wasIgnored.has(name));
+      weakened.push(`${path} lost tests: ${lost.join(", ")}`);
+    const ignored = surplus(ignoredDeclarations(after), ignoredDeclarations(before));
     if (ignored.length) weakened.push(`${path} gained @Ignore on ${ignored.join(", ")}`);
   }
   return weakened;

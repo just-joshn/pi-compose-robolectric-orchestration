@@ -292,3 +292,31 @@ describe("baseline of a file with several test classes", () => {
     expect(run.baselineTests).toEqual(["a.First.good", "a.Second.broken"]);
   });
 });
+
+const pair = (second: string) =>
+  `class FooTest {\n  class A {\n    @Ignore @Test fun same() { assert(true) }\n  }\n  class B {\n    ${second}@Test fun same() { assert(true) }\n  }\n}\n`;
+
+describe("round 12 gaps", () => {
+  it("notices a new @Ignore on a test that shares its name with an ignored one", () => {
+    const root = workspace({ test: pair("") });
+    const run = start(
+      newRun("g", null),
+      { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
+    write(root, TEST_FILE, pair("@Ignore "));
+    expect(editProblem(run, root)).toMatch(/gained @Ignore on same/);
+  });
+
+  it("reads committed non-ASCII paths as git stores them", () => {
+    const root = workspace();
+    const path = "app/src/main/java/a/Café.kt";
+    write(root, path, "one");
+    git(root, "add", "-A");
+    commit(root, "cafe");
+    const before = fingerprint(root);
+    write(root, path, "two");
+    commit(root, "cafe 2");
+    expect(changedPaths(root, before, fingerprint(root))).toEqual([path]);
+  });
+});
