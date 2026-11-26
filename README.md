@@ -55,7 +55,7 @@ pi install git:github.com/just-joshn/pi-compose-robolectric-orchestration
 ```
 
 The extension uses the project's `gradlew`. Without a wrapper it falls back to `COMPOSE_TEST_GRADLE`,
-then `gradle`. You can also set `COMPOSE_TEST_TASK` (default `testDebugUnitTest`) and
+then `gradle`. You can also set `COMPOSE_TEST_TASK`, a task name without a project path (default `testDebugUnitTest`), and
 `COMPOSE_TEST_TIMEOUT` (seconds, default 1200).
 
 ## Extending

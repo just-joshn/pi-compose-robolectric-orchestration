@@ -49,11 +49,12 @@ export function gradleConfig(env = process.env) {
     throw new Error(
       `COMPOSE_TEST_TIMEOUT must be a positive number of seconds, got "${env["COMPOSE_TEST_TIMEOUT"]}".`,
     );
-  return {
-    gradle: env["COMPOSE_TEST_GRADLE"] || "gradle",
-    task: env["COMPOSE_TEST_TASK"] || "testDebugUnitTest",
-    timeoutMs: timeout * 1000,
-  };
+  const task = env["COMPOSE_TEST_TASK"] || "testDebugUnitTest";
+  if (task.includes(":"))
+    throw new Error(
+      `COMPOSE_TEST_TASK must be a task name such as testDebugUnitTest, not a path; got "${task}".`,
+    );
+  return { gradle: env["COMPOSE_TEST_GRADLE"] || "gradle", task, timeoutMs: timeout * 1000 };
 }
 
 export interface TestClass {

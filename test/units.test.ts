@@ -266,6 +266,9 @@ describe("untrusted input at the boundaries", () => {
   it("rejects a timeout that is not a positive number and defaults empty overrides", () => {
     for (const bad of ["abc", "0", "-5", "Infinity"])
       expect(() => gradleConfig({ COMPOSE_TEST_TIMEOUT: bad })).toThrow(/COMPOSE_TEST_TIMEOUT/);
+    expect(() => gradleConfig({ COMPOSE_TEST_TASK: ":app:testDebugUnitTest" })).toThrow(
+      /task name/,
+    );
     expect(gradleConfig({ COMPOSE_TEST_GRADLE: "", COMPOSE_TEST_TASK: "" })).toEqual({
       gradle: "gradle",
       task: "testDebugUnitTest",
