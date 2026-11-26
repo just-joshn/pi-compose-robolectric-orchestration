@@ -175,11 +175,12 @@ export const workflows = {
         "optimize",
         TESTS_AND_BUILD,
         "Reduce test time without dropping coverage. Only test and build files may change.",
+        "Nothing changed since the baseline measure, so any difference in test time would be noise. Change the tests or the build to make them faster.",
       ),
       auto(
         "after",
         "measure",
-        "Call compose_test_step. The extension times the targets again and requires a real speedup with every test passing.",
+        "Call compose_test_step. The extension times the targets again and requires every run to beat every baseline run, the median by at least 5%, with every test passing.",
       ),
     ],
     preserveTests: true,

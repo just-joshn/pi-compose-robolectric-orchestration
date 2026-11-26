@@ -8,6 +8,7 @@ import { deps, recordTask, RESULT_XML, TEST_FILE, workspace, write } from "./hel
 const input = { workflow: "performance", targets: [{ file: TEST_FILE }] } as const;
 const baseline = (root: string, d: Deps) =>
   step(start(newRun("g", null), input, root, d.dir).run, d);
+const optimize = (root: string) => write(root, "app/build.gradle.kts", "// tuned\n");
 
 /** What the build does to the test time after Gradle's listener records the real 1.5s. */
 type Build = "honest" | "forges" | "deletes";
@@ -37,6 +38,7 @@ describe("measuring test time", () => {
     const d = deps(root, exec);
     const measured = await baseline(root, d);
     caseSeconds = 0;
+    optimize(root);
     const after = await step(measured.run, d);
     expect(after.run.status).toBe("active");
     expect(after.message).toContain("Median test time 1.50s -> 1.50s");
@@ -53,6 +55,7 @@ describe("a build script that tampers with the test time", () => {
     );
     const measured = await baseline(root, d);
     build = "forges";
+    optimize(root);
     const after = await step(measured.run, d);
     expect(after.message).toContain("Median test time 1.50s -> 1.50s");
     expect(after.run.status).toBe("active");
@@ -67,6 +70,7 @@ describe("a build script that tampers with the test time", () => {
     );
     const measured = await baseline(root, d);
     build = "deletes";
+    optimize(root);
     const after = await step(measured.run, d);
     expect(after.run.status).toBe("active");
     expect(after.run.statusReason).toMatch(/must pass/);
@@ -82,5 +86,36 @@ describe("a build script that tampers with the test time", () => {
     );
     expect(unmeasured.run.status).toBe("blocked");
     expect(unmeasured.run.statusReason).toMatch(/must pass/);
+  });
+});
+
+/** Like Gradle with the extension's init script, timing the nth run at `ms[n]`. */
+function timed(root: string, ms: readonly number[]): Exec {
+  let call = 0;
+  return async (_command, args) => {
+    write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest" time="1"/>');
+    recordTask(root, args, { ms: ms[call++] ?? 0 });
+    return { code: 0, stdout: "", stderr: "" };
+  };
+}
+
+describe("a speedup", () => {
+  it("is noise unless every run after the change beats every baseline run", async () => {
+    const root = workspace();
+    const d = deps(root, timed(root, [1000, 1000, 1000, 500, 500, 1000]));
+    const measured = await baseline(root, d);
+    optimize(root);
+    const after = await step(measured.run, d);
+    expect(after.message).toContain("Median test time 1.00s -> 0.50s (50.0%)");
+    expect(after.run.status).toBe("active");
+    expect(after.run.statusReason).toMatch(/slowest took 1.00s.*fastest baseline run took 1.00s/);
+  });
+
+  it("verifies when every run after the change beats every baseline run", async () => {
+    const root = workspace();
+    const d = deps(root, timed(root, [1000, 1100, 1200, 900, 600, 500]));
+    const measured = await baseline(root, d);
+    optimize(root);
+    expect((await step(measured.run, d)).run.status).toBe("verified");
   });
 });

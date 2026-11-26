@@ -310,6 +310,7 @@ describe("flaky, refactor and performance workflows", () => {
     const { run, d } = begin(root, { workflow: "performance" }, () => "pass");
     const optimizing = (await step(run, d)).run;
     expect(currentPhase(optimizing)?.id).toBe("optimize");
+    write(root, "app/build.gradle.kts", "// tuned\n");
     expect((await step(optimizing, d)).message).toContain("Needs at least 5%");
     const failing = begin(workspace(), { workflow: "performance" }, () => "fail");
     expect((await step(failing.run, failing.d)).run.status).toBe("blocked");

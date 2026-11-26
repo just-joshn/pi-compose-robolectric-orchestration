@@ -169,15 +169,25 @@ export async function measure(run: Run, deps: Deps, phase: Phase): Promise<StepR
   }
   const timing = `test time per run: ${recorded.map((r) => r.testSeconds?.toFixed(2)).join(", ")}s`;
   if (baseline) return result(advance(next), `Baseline ${timing}`);
-  const before = median(
-    next.runs
-      .filter((r) => r.purpose === "measure" && r.phase === "baseline")
-      .flatMap((r) => r.testSeconds ?? []),
+  const baselineTimes = next.runs
+    .filter((r) => r.purpose === "measure" && r.phase === "baseline")
+    .flatMap((r) => r.testSeconds ?? []);
+  const { summary, problem } = compare(
+    baselineTimes,
+    recorded.flatMap((r) => r.testSeconds ?? []),
   );
-  const after = median(recorded.flatMap((r) => r.testSeconds ?? []));
-  const speedup = before > 0 ? (before - after) / before : 0;
-  const summary = `Median test time ${before.toFixed(2)}s -> ${after.toFixed(2)}s (${(speedup * 100).toFixed(1)}%).`;
-  if (speedup >= MIN_SPEEDUP) return result(advance(next), summary, timing);
-  const reason = `${summary} Needs at least ${MIN_SPEEDUP * 100}%.`;
-  return result(backtrack(next, reason), reason);
+  if (problem) return result(backtrack(next, problem), problem);
+  return result(advance(next), summary, timing);
+}
+
+function compare(baseline: readonly number[], after: readonly number[]) {
+  const [before, now] = [median(baseline), median(after)];
+  const speedup = before > 0 ? (before - now) / before : 0;
+  const summary = `Median test time ${before.toFixed(2)}s -> ${now.toFixed(2)}s (${(speedup * 100).toFixed(1)}%).`;
+  if (speedup < MIN_SPEEDUP)
+    return { summary, problem: `${summary} Needs at least ${MIN_SPEEDUP * 100}%.` };
+  const [slowest, fastest] = [Math.max(...after), Math.min(...baseline)];
+  if (slowest < fastest) return { summary };
+  const problem = `${summary} Every run must beat every baseline run, but the slowest took ${slowest.toFixed(2)}s and the fastest baseline run took ${fastest.toFixed(2)}s, so the difference may be noise.`;
+  return { summary, problem };
 }

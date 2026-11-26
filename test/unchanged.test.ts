@@ -31,6 +31,14 @@ describe("a fix phase that changed nothing since start", () => {
     expect(currentPhase((await step(fixing, d)).run)?.kind).toBe("mutation");
   });
 
+  it("cannot end performance's optimize phase, because the timing difference would be noise", async () => {
+    const { run, d, gradle } = begin(workspace(), { workflow: "performance" }, () => "pass");
+    const optimizing = (await step(run, d)).run;
+    expect(currentPhase(optimizing)?.id).toBe("optimize");
+    await expect(step(optimizing, d)).rejects.toThrow(/since the baseline measure.*noise/);
+    expect(gradle.calls).toHaveLength(3);
+  });
+
   it("still lets a refactor that keeps the tests as they are finish", async () => {
     const { run, d } = begin(workspace(), { workflow: "refactor" });
     const editing = (await step(run, d)).run;
