@@ -278,3 +278,17 @@ describe("round 10 gaps", () => {
     expect(done.statusReason).toMatch(/Original tests missing or not passing/);
   });
 });
+
+describe("baseline of a file with several test classes", () => {
+  it("names each test with its own class", () => {
+    const both =
+      "package a\nclass First {\n  @Test fun good() {}\n}\nclass Second {\n  @Test fun broken() {}\n}\n";
+    const root = workspace({ test: both });
+    const run = start(
+      newRun("g", null),
+      { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
+    expect(run.baselineTests).toEqual(["a.First.good", "a.Second.broken"]);
+  });
+});

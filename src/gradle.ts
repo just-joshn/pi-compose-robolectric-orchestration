@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 
-import { annotation, stripCode } from "./lint.ts";
+import { stripCode, testFunctions } from "./lint.ts";
 import { inside } from "./paths.ts";
 
 export interface Target {
@@ -10,7 +10,9 @@ export interface Target {
   readonly method?: string;
 }
 
-interface Resolved extends Target {
+interface Resolved {
+  readonly file: string;
+  readonly method: string | undefined;
   readonly root: string;
   readonly module: string;
   readonly task: string;
@@ -55,24 +57,42 @@ export function gradleConfig(env = process.env) {
   };
 }
 
-/** The test class: the last top-level class declared before the first @Test. */
-export function className(source: string, file: string): string {
-  const code = stripCode(source);
-  const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
-  const firstTest = code.search(annotation(code, "Test"));
-  const declaration =
-    /^[ \t]*(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
-  let name = basename(file).replace(/\.kt$/, "");
-  for (const match of code.matchAll(declaration)) {
-    const at = match.index ?? 0;
-    if (firstTest >= 0 && at > firstTest) break;
-    const before = code.slice(0, at);
-    if (before.split("{").length === before.split("}").length) name = match[1] ?? name;
-  }
-  return pkg ? `${pkg}.${name}` : name;
+export interface TestClass {
+  readonly name: string;
+  readonly tests: readonly string[];
 }
 
-function resolve(cwd: string, target: Target, task: string): Resolved {
+const DECLARATION =
+  /^[ \t]*(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
+
+/**
+ * Every top-level class holding @Test functions, each with its tests. With none, the last
+ * top-level class, or the file name, so a file that has no tests yet still names a class.
+ */
+export function testClasses(source: string, file: string): TestClass[] {
+  const code = stripCode(source);
+  const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
+  const qualify = (name: string) => (pkg ? `${pkg}.${name}` : name);
+  const tops = [...code.matchAll(DECLARATION)].filter((m) => {
+    const before = code.slice(0, m.index);
+    return before.split("{").length === before.split("}").length;
+  });
+  const tests = testFunctions(source);
+  const classes = tops.map((m, i) => {
+    const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
+    return {
+      name: qualify(m[1] ?? ""),
+      tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name),
+    };
+  });
+  const withTests = classes.filter((c) => c.tests.length > 0);
+  if (withTests.length) return withTests;
+  return [
+    { name: classes.at(-1)?.name ?? qualify(basename(file).replace(/\.kt$/, "")), tests: [] },
+  ];
+}
+
+function resolve(cwd: string, target: Target, task: string): Resolved[] {
   if (!inside(cwd, target.file)) throw new Error(`Target ${target.file} is outside the workspace.`);
   const absolute = join(cwd, target.file);
   if (!existsSync(absolute)) throw new Error(`Target ${target.file} does not exist.`);
@@ -85,13 +105,18 @@ function resolve(cwd: string, target: Target, task: string): Resolved {
     root = dirname(root);
   }
   const path = relative(root, module).split(sep).filter(Boolean).join(":");
-  return {
-    ...target,
+  const classes = testClasses(readFileSync(absolute, "utf8"), target.file);
+  const { method } = target;
+  const holding = method ? classes.filter((c) => c.tests.includes(method)) : classes;
+  const gradleTask = `${path ? `:${path}` : ""}:${task}`;
+  return (holding.length ? holding : classes).map((c) => ({
+    file: target.file,
+    method,
     root,
     module,
-    task: `${path ? `:${path}` : ""}:${task}`,
-    className: className(readFileSync(absolute, "utf8"), target.file),
-  };
+    task: gradleTask,
+    className: c.name,
+  }));
 }
 
 const attribute = (tag: string, name: string) =>
@@ -194,7 +219,7 @@ export async function runTargets(
   signal?: AbortSignal,
 ): Promise<Execution> {
   const config = gradleConfig();
-  const resolved = targets.map((t) => resolve(cwd, t, config.task));
+  const resolved = targets.flatMap((t) => resolve(cwd, t, config.task));
   const started = Date.now();
   const keys = new Set(resolved.map((t) => `${t.root}\0${t.task}`));
   const invocations = [...keys].map((key) =>

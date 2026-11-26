@@ -10,8 +10,8 @@ import {
   saveSnapshot,
   scopeViolations,
 } from "./checks.ts";
-import { className, type Exec, runTargets, type Target } from "./gradle.ts";
-import { type LintFinding, lintTestSource, testFunctions } from "./lint.ts";
+import { type Exec, runTargets, type Target, testClasses } from "./gradle.ts";
+import { type LintFinding, lintTestSource } from "./lint.ts";
 import { categorize, inside, isSource } from "./paths.ts";
 import {
   addRun,
@@ -98,10 +98,9 @@ export function start(run: Run, input: StartInput, cwd: string, dir = stateDir(c
     phaseIndex: 0,
     baseline,
     snapshot: saveSnapshot(cwd, baseline, dir),
-    baselineTests: input.targets.flatMap((t) => {
-      const source = read(cwd, t.file);
-      return testFunctions(source).map((f) => `${className(source, t.file)}.${f.name}`);
-    }),
+    baselineTests: input.targets.flatMap((t) =>
+      testClasses(read(cwd, t.file), t.file).flatMap((c) => c.tests.map((n) => `${c.name}.${n}`)),
+    ),
   });
   return result(started, `Started ${input.workflow}.`, nextStep(started));
 }

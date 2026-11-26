@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { start } from "../src/engine.ts";
-import { className, gradleConfig, parseJUnitXml } from "../src/gradle.ts";
+import { gradleConfig, parseJUnitXml, testClasses } from "../src/gradle.ts";
 import { ignoredDeclarations, lintTestSource, testFunctions } from "../src/lint.ts";
 import { categorize } from "../src/paths.ts";
 import { addRun, finish, isRun, newRun, report } from "../src/state.ts";
@@ -299,7 +299,7 @@ describe("untrusted input at the boundaries", () => {
     expect(parseJUnitXml("")).toEqual([]);
     expect(lintTestSource("app/src/test/A.kt", "")).toEqual([]);
     expect(categorize("")).toBe("other");
-    expect(className("", "A.kt")).toBe("A");
+    expect(testClasses("", "A.kt")).toEqual([{ name: "A", tests: [] }]);
   });
 });
 

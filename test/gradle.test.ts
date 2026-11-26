@@ -3,10 +3,11 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { className, type Exec, gradleConfig, parseJUnitXml, runTargets } from "../src/gradle.ts";
+import { type Exec, gradleConfig, parseJUnitXml, runTargets, testClasses } from "../src/gradle.ts";
 import { fakeGradle, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
 
 const fooTarget = { file: TEST_FILE };
+const firstClass = (source: string, file: string) => testClasses(source, file)[0]?.name;
 
 describe("reading Gradle results", () => {
   it("parses JUnit XML", () => {
@@ -24,23 +25,23 @@ describe("reading Gradle results", () => {
 
   it("finds the @Test class past helpers and one-line annotations", () => {
     expect(
-      className("package a\nobject Fixtures\nclass FooTest {\n  @Test fun t() {}\n}", "x.kt"),
+      firstClass("package a\nobject Fixtures\nclass FooTest {\n  @Test fun t() {}\n}", "x.kt"),
     ).toBe("a.FooTest");
     expect(
-      className(
+      firstClass(
         "package a\n@Config(sdk = [33]) class Actual {\n  @Test fun t() {}\n}",
         "Renamed.kt",
       ),
     ).toBe("a.Actual");
-    expect(className("// nothing", "x/FooTest.kt")).toBe("FooTest");
+    expect(firstClass("// nothing", "x/FooTest.kt")).toBe("FooTest");
   });
 
   it("takes an indented top-level class but never a nested one", () => {
-    expect(className("package p\n  class Actual {\n @Test fun ok() {}\n}", "Different.kt")).toBe(
+    expect(firstClass("package p\n  class Actual {\n @Test fun ok() {}\n}", "Different.kt")).toBe(
       "p.Actual",
     );
     const nested = "package p\nclass Outer {\nclass Helper\n  @Test fun ok() {}\n}";
-    expect(className(nested, "Outer.kt")).toBe("p.Outer");
+    expect(firstClass(nested, "Outer.kt")).toBe("p.Outer");
   });
 });
 
@@ -154,6 +155,31 @@ describe("aliased test annotations", () => {
   it("still selects the class that holds the tests", () => {
     const source =
       "package p\nimport org.junit.Test as JUnitTest\nclass ActualTest { @JUnitTest fun works() {} }\nclass Helper {}";
-    expect(className(source, "ActualTest.kt")).toBe("p.ActualTest");
+    expect(firstClass(source, "ActualTest.kt")).toBe("p.ActualTest");
+  });
+});
+
+describe("a file with several top-level test classes", () => {
+  const source =
+    "package a\nclass First {\n  @Test fun good() {}\n}\nobject Helpers\nclass Second {\n  @Test fun broken() {}\n}\n";
+
+  it("lists every class that holds tests, with its tests", () => {
+    expect(testClasses(source, "Both.kt")).toEqual([
+      { name: "a.First", tests: ["good"] },
+      { name: "a.Second", tests: ["broken"] },
+    ]);
+  });
+
+  it("asks Gradle for every class, or only the one holding a named method", async () => {
+    const root = workspace({ test: source });
+    const calls: string[][] = [];
+    const exec: Exec = async (_c, args) => {
+      calls.push([...args]);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await runTargets(exec, root, [fooTarget]);
+    await runTargets(exec, root, [{ file: TEST_FILE, method: "broken" }]);
+    const filters = calls.map((args) => args.filter((_, i) => args[i - 1] === "--tests"));
+    expect(filters).toEqual([["a.First", "a.Second"], ["a.Second.broken"]]);
   });
 });

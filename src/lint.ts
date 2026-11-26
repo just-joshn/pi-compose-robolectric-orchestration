@@ -77,6 +77,7 @@ const ASSERTION =
 
 interface KotlinFunction {
   readonly name: string;
+  readonly at: number;
   readonly line: number;
   readonly header: string;
   readonly body: string;
@@ -241,6 +242,7 @@ function functions(code: string): KotlinFunction[] {
     const header = ANNOTATIONS.exec(code.slice(boundary + 1, at))?.[1] ?? "";
     found.push({
       name: (match[1] ?? "").replaceAll("`", ""),
+      at,
       line: countBefore(newlines, at) + 1,
       header,
       body: code.slice(start, end),
