@@ -368,6 +368,7 @@ describe("Kotlin the scanner must read like the compiler", () => {
       "import org.junit.Test as JUnitTest\nimport org.junit.Ignore as Skip\nclass T {\n  @Skip\n  @JUnitTest fun a() { Thread.sleep(1) }\n}";
     expect(testFunctions(source).map((t) => t.name)).toEqual(["a"]);
     expect(countIgnores(source)).toBe(1);
+    expect(countIgnores("class T {\n  @Test @Ignore fun a() {}\n}")).toBe(1);
     expect(lintTestSource("app/src/test/T.kt", source).map((f) => f.rule)).toContain(
       "no-assertion",
     );

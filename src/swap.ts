@@ -71,7 +71,6 @@ function alive(pid: number): boolean {
   }
 }
 
-/** Journals this process holds right now; any other journal with this pid is left from a crash. */
 const holding = new Set<string>();
 const held = (path: string, journal: Journal) =>
   journal.pid === process.pid ? holding.has(path) : alive(journal.pid);

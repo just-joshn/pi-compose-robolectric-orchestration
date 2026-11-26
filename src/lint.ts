@@ -318,6 +318,5 @@ export function lintTestSource(file: string, source: string): LintFinding[] {
 
 export function countIgnores(source: string): number {
   const code = stripCode(source);
-  const ignore = new RegExp(`^\\s*${annotation(code, "Ignore").source}`);
-  return code.split("\n").filter((line) => ignore.test(line)).length;
+  return code.match(new RegExp(annotation(code, "Ignore").source, "g"))?.length ?? 0;
 }
