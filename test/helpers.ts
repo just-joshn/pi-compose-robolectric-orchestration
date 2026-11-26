@@ -62,8 +62,12 @@ export function workspace(options: { git?: boolean; test?: string | null } = {})
 
 export type Verdict = "pass" | "fail" | "build-error" | "flaky";
 
+const attribute = (text: string) =>
+  text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+
 const xml = (cases: readonly [string, boolean][]) =>
   `<?xml version="1.0"?><testsuite name="a.FooTest" tests="${cases.length}">${cases
+    .map(([name, ok]) => [attribute(name), ok] as const)
     .map(([name, ok]) =>
       ok
         ? `<testcase name="${name}" classname="a.FooTest" time="0.5"/>`
@@ -85,8 +89,8 @@ export function fakeGradle(
     const verdict = decide(read(root, MAIN_FILE), read(root, TEST_FILE), calls.length);
     if (verdict === "build-error")
       return { code: 1, stdout: "", stderr: "e: Unresolved reference\nBUILD FAILED" };
-    const names = [...read(root, TEST_FILE).matchAll(/@Test\s+fun\s+(\w+)/g)].map(
-      (m) => m[1] ?? "",
+    const names = [...read(root, TEST_FILE).matchAll(/@Test\s+fun\s+(`[^`]+`|\w+)/g)].map(
+      (m) => m[1]?.replaceAll("`", "") ?? "",
     );
     const ok = verdict === "pass" || (verdict === "flaky" && calls.length % 2 === 0);
     write(root, RESULT_XML, xml(names.map((name) => [name, ok])));

@@ -104,7 +104,7 @@ function countBefore(sorted: readonly number[], index: number): number {
 
 const blank = (text: string) => text.replace(/[^\n]/g, " ");
 
-const LITERAL = /\/\/[^\n]*|\/\*|"""|"|'(?:\\.|[^'\\\n])'/g;
+const LITERAL = /`[^`\n]*`|\/\/[^\n]*|\/\*|"""|"|'(?:\\.|[^'\\\n])'/g;
 const COMMENT_MARK = /\/\*|\*\//g;
 
 /** Kotlin block comments nest. */
@@ -150,10 +150,17 @@ function literalEnd(source: string, start: number, token: string): number {
   return start + token.length;
 }
 
+function stripped(text: string): string {
+  if (text.startsWith("`")) return text;
+  if (text.startsWith('"') || text.startsWith("'"))
+    return `${text[0]}${blank(text.slice(1, -1))}${text.at(-1)}`;
+  return blank(text);
+}
+
 /**
  * Blank comments and the contents of string and character literals, preserving their delimiters,
  * newlines and offsets, so rules only see code. Handles line comments, nested block comments,
- * and string templates.
+ * and string templates. Backticked names stay whole, quotes and slashes included.
  */
 export function stripCode(source: string): string {
   let out = "";
@@ -162,9 +169,8 @@ export function stripCode(source: string): string {
   for (let m = LITERAL.exec(source); m; m = LITERAL.exec(source)) {
     const end = literalEnd(source, m.index, m[0]);
     const text = source.slice(m.index, end);
-    const quoted = text.startsWith('"') || text.startsWith("'");
     out += source.slice(last, m.index);
-    out += quoted ? `${text[0]}${blank(text.slice(1, -1))}${text.at(-1)}` : blank(text);
+    out += stripped(text);
     last = end;
     LITERAL.lastIndex = end;
   }
