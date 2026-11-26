@@ -95,3 +95,13 @@ describe("assertions made with MockK and Kotest", () => {
     expect(findings.map((f) => `${f.line} ${f.rule}`)).toEqual(["6 no-assertion"]);
   });
 });
+
+it("recognizes assertions in a helper returning a multiline generic function type", () => {
+  const source = `class T {
+  fun validateValue(): List<
+    () -> Unit
+  > = listOf<() -> Unit>().also { assertEquals(1, 1) }
+  @Test fun test() { validateValue() }
+}`;
+  expect(lintTestSource("app/src/test/T.kt", source)).toEqual([]);
+});

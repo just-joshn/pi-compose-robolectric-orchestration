@@ -233,10 +233,12 @@ function functions(code: string): KotlinFunction[] {
     const typeStart = afterParams + (returnTypeStart?.[0].length ?? 0);
     BODY_START.lastIndex = typeStart;
     let start = BODY_START.exec(code)?.index ?? -1;
-    while (returnTypeStart && start >= 0 && code[start] === "\n") {
-      const type = code.slice(typeStart, start);
-      if (type.split("<").length <= type.split(">").length) break;
-      start = BODY_START.exec(code)?.index ?? -1;
+    if (returnTypeStart) {
+      while (start >= 0 && code[start] === "\n") {
+        const type = code.slice(typeStart, start).replaceAll("->", "");
+        if (type.split("<").length <= type.split(">").length) break;
+        start = BODY_START.exec(code)?.index ?? -1;
+      }
     }
     if (start < 0 || code[start] === "\n") continue;
     const end = code[start] === "{" ? blockEnd(code, start) : expressionEnd(code, start + 1);
