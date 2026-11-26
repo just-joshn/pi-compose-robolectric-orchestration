@@ -275,6 +275,30 @@ describe("a module whose Gradle path differs from its directory", () => {
   });
 });
 
+it("uses class bodies after constructor and superclass lambdas for ownership and ignored tests", () => {
+  const source = `package a
+import org.junit.Ignore
+abstract class Base<T>(check: () -> Boolean) {
+  @Test fun inherited() {}
+}
+class FooTest(val check: () -> Boolean = { true }) : Base<List<String>>({ true }) {
+  @Test fun own() {}
+  @Ignore class Ignored : Base<List<String>>({ true }) {
+    @Test fun skipped() {}
+  }
+  class Nested : Base<List<String>>({ true }) {
+    @Test fun works() {}
+  }
+}`;
+  expect(testClasses(source, TEST_FILE)).toEqual([
+    {
+      name: "a.FooTest",
+      tests: ["own", "works", "inherited"],
+      testIds: ["a.FooTest.own", "a.FooTest$Nested.works", "a.FooTest.inherited"],
+    },
+  ]);
+});
+
 describe("tests in nested classes", () => {
   const inner = "a.FooTest$WhenShouting";
   const source = `package a\nclass FooTest {\n  @Test fun greets() { assert(true) }\n  class WhenShouting {\n    @Test fun shouts() { assert(false) }\n  }\n}\n`;

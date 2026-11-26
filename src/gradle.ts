@@ -79,14 +79,51 @@ const DECLARATION = new RegExp(
   "gm",
 );
 
-function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], ignore: RegExp) {
-  const bodies = declarations.flatMap((m, i) => {
-    const open = code.indexOf("{", m.index + m[0].length);
-    const bodied = open >= 0 && open < (declarations[i + 1]?.index ?? code.length);
-    return ignore.test(m[1] ?? "") && bodied ? [[open, blockEnd(code, open)] as const] : [];
-  });
-  return (at: number) => bodies.some(([from, to]) => at > from && at < to);
+interface Declaration {
+  readonly name: string;
+  readonly annotations: string;
+  readonly modifiers: string;
+  readonly at: number;
+  readonly header: string;
+  readonly body: { readonly from: number; readonly to: number } | null;
+  readonly topLevel: boolean;
 }
+
+function declarationsIn(code: string): Declaration[] {
+  const matches = [...code.matchAll(DECLARATION)];
+  return matches.map((m, i) => {
+    const start = m.index + m[0].length;
+    const limit = matches[i + 1]?.index ?? code.length;
+    let parens = 0;
+    let angles = 0;
+    let end = start;
+    for (; end < limit; end++) {
+      const ch = code[end];
+      if (ch === "`") {
+        end = code.indexOf("`", end + 1);
+        continue;
+      }
+      if (parens === 0 && angles === 0 && (ch === "{" || ch === "}")) break;
+      if (ch === "(") parens++;
+      if (ch === ")") parens--;
+      if (parens === 0 && ch === "<") angles++;
+      if (parens === 0 && ch === ">" && code[end - 1] !== "-") angles--;
+    }
+    const before = code.slice(0, m.index);
+    return {
+      name: m[3] ?? "",
+      annotations: m[1] ?? "",
+      modifiers: m[2] ?? "",
+      at: m.index,
+      header: code.slice(start, end),
+      body: end < limit && code[end] === "{" ? { from: end, to: blockEnd(code, end) } : null,
+      topLevel: before.split("{").length === before.split("}").length,
+    };
+  });
+}
+
+const contains = (declaration: Declaration, at: number) =>
+  declaration.body !== null && declaration.body.from < at && at < declaration.body.to;
 
 const supertypeName = (part: string) => /^\s*([\w.]+)/.exec(part)?.[1] ?? "";
 
@@ -98,7 +135,7 @@ function supertypes(header: string): string[] {
   for (let i = 0; i < header.length; i++) {
     const ch = header[i];
     if (parens === 0 && angles === 0) {
-      if (ch === "{" || /^where\b/.test(header.slice(i))) break;
+      if (/^where\b/.test(header.slice(i))) break;
       if (ch === ":" && start < 0) start = i + 1;
       else if (ch === "," && start >= 0) {
         names.push(supertypeName(header.slice(start, i)));
@@ -118,23 +155,13 @@ export function testClasses(source: string, file: string): TestClass[] {
   const code = stripCode(source);
   const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
   const qualify = (name: string) => (pkg ? `${pkg}.${name}` : name);
-  const declarations = [...code.matchAll(DECLARATION)];
-  const tops = declarations.filter((m) => {
-    const before = code.slice(0, m.index);
-    return before.split("{").length === before.split("}").length;
-  });
+  const declarations = declarationsIn(code);
+  const tops = declarations.filter((declaration) => declaration.topLevel);
   const ignore = annotation(code, "Ignore");
-  const skipped = inIgnoredClass(code, declarations, ignore);
-  const bodies = declarations.flatMap((m, i) => {
-    const open = code.indexOf("{", m.index + m[0].length);
-    return open >= 0 && open < (declarations[i + 1]?.index ?? code.length)
-      ? [{ name: m[3] ?? "", from: open, to: blockEnd(code, open) }]
-      : [];
-  });
   const functions = testFunctions(source);
   const declarationsWithTests = tops.map((m, i) => {
-    const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
-    const bases = supertypes(code.slice(m.index + m[0].length, to)).map((type) =>
+    const [from, to] = [m.at, tops[i + 1]?.at ?? code.length];
+    const bases = supertypes(m.header).map((type) =>
       pkg && type.startsWith(`${pkg}.`) ? type.slice(pkg.length + 1) : type,
     );
     const own = functions
@@ -145,14 +172,14 @@ export function testClasses(source: string, file: string): TestClass[] {
           name: t.name,
           ignored: ignore.test(t.header),
           direct: before.split("{").length - before.split("}").length === 1,
-          inIgnoredClass: skipped(t.at),
-          owners: bodies.filter((body) => body.from < t.at && t.at < body.to).map((b) => b.name),
+          inIgnoredClass: declarations.some((d) => ignore.test(d.annotations) && contains(d, t.at)),
+          owners: declarations.filter((d) => contains(d, t.at)).map((d) => d.name),
         };
       });
     return {
-      name: m[3] ?? "",
-      abstract: /\b(abstract|sealed)\s/.test(m[2] ?? ""),
-      ignored: ignore.test(m[1] ?? ""),
+      name: m.name,
+      abstract: /\b(abstract|sealed)\s/.test(m.modifiers),
+      ignored: ignore.test(m.annotations),
       bases,
       direct: own.filter((t) => t.direct),
       nested: own.filter((t) => !t.direct && !t.ignored && !t.inIgnoredClass),

@@ -352,3 +352,55 @@ it("accepts a preserved passing nested test when a same-named sibling is skipped
   );
   expect(done.statusReason).toBe("All checks passed.");
 });
+
+it.each([
+  [
+    "nested class with a lambda in its superclass argument",
+    "class LoggedIn : Base({ true })",
+    "LoggedIn",
+  ],
+])("accepts a passing %s", (_description, declaration, name) => {
+  const root = workspace({
+    test: `package a
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.experimental.runners.Enclosed
+open class Base(check: () -> Boolean)
+@RunWith(Enclosed::class)
+class FooTest {
+  ${declaration} {
+    @Test fun works() { assert(true) }
+  }
+}
+`,
+  });
+  const run = start(
+    newRun("fix flaky", null),
+    { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] },
+    root,
+  ).run;
+  const tree = digest(fingerprint(root));
+  const ran = (id: number): TestRun => ({
+    id,
+    phase: "test",
+    purpose: id === 1 ? "inventory" : "stress",
+    command: "",
+    exitCode: 0,
+    outcome: "passed",
+    cases: [{ className: `a.FooTest$${name}`, name: "works", status: "passed", seconds: 1 }],
+    seconds: 1,
+    testSeconds: 1,
+    outputTail: "",
+    tree,
+  });
+  const done = finalize(
+    {
+      ...run,
+      runs: [ran(1), ran(2)],
+      mutations: [{ ...BREAK, runId: 3, tree, detected: true }],
+      phaseIndex: 4,
+    },
+    root,
+  );
+  expect(done.statusReason).toBe("All checks passed.");
+});
