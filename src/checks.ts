@@ -119,11 +119,11 @@ export const lintErrors = (cwd: string, changed: readonly string[]) =>
     .filter((f) => f.severity === "error");
 
 /** `test` is `Class.method`; nested classes report as `Class$Inner` and parameterized cases as `method[i]`. */
-const passed = (r: TestRun, test: string) =>
-  r.cases.some((c) => {
+const passes = (r: TestRun, test: string) =>
+  r.cases.filter((c) => {
     const id = `${c.className.split("$")[0]}.${c.name}`;
     return c.status === "passed" && (id === test || id.startsWith(`${test}[`));
-  });
+  }).length;
 
 function problems(run: Run, cwd: string): string[] {
   if (!run.workflow) return ["No workflow ran."];
@@ -157,7 +157,8 @@ function problems(run: Run, cwd: string): string[] {
       );
   }
   if (workflow.preserveTests && lastPass) {
-    const lost = run.baselineTests.filter((name) => !passed(lastPass, name));
+    const needed = (name: string) => run.baselineTests.filter((t) => t === name).length;
+    const lost = [...new Set(run.baselineTests)].filter((t) => passes(lastPass, t) < needed(t));
     if (lost.length) found.push(`Original tests missing or not passing: ${lost.join(", ")}.`);
   }
   found.push(...weakenedTests(run, cwd, changed).map((p) => `Weakened tests: ${p}.`));

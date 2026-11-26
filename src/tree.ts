@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 
 import { categorize } from "./paths.ts";
 
@@ -43,7 +43,9 @@ function dirtyPaths(cwd: string, top: string, status: string): string[] {
     paths.push(token.slice(3));
     if (/[RC]/.test(token.slice(0, 2))) paths.push(tokens[++i] ?? "");
   }
-  return paths.map((p) => relative(base, join(top, p))).filter((p) => !p.startsWith(".."));
+  return paths
+    .map((p) => relative(base, join(top, p)))
+    .filter((p) => p !== ".." && !p.startsWith(`..${sep}`));
 }
 
 /**

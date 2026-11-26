@@ -9,7 +9,7 @@ import { editProblem, finalize, saveSnapshot } from "../src/checks.ts";
 import { addFinding, mutate, start, type StartInput, step } from "../src/engine.ts";
 import { isRun, newRun, type TestRun } from "../src/state.ts";
 import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
-import { digest, fingerprint } from "../src/tree.ts";
+import { changedPaths, digest, fingerprint } from "../src/tree.ts";
 import {
   begin,
   BREAK,
@@ -254,5 +254,27 @@ describe("two sessions starting together", () => {
     const baseline = fingerprint(root);
     expect(saveSnapshot(root, baseline, dir)).not.toBe(saveSnapshot(root, baseline, dir));
     now.mockRestore();
+  });
+});
+
+describe("round 10 gaps", () => {
+  it("fingerprints changes in a directory whose name starts with two dots", () => {
+    const root = workspace();
+    write(root, "..module/src/main/A.kt", "one");
+    git(root, "add", "-A");
+    commit(root, "dots");
+    const before = fingerprint(root);
+    write(root, "..module/src/main/A.kt", "two");
+    expect(changedPaths(root, before, fingerprint(root))).toEqual(["..module/src/main/A.kt"]);
+  });
+
+  it("needs a passing case for every same-named baseline test", () => {
+    const root = workspace();
+    const run = { ...newRun("g", null), workflow: "fix-flaky" as const, status: "active" as const };
+    const skipped = { ...aCase, className: "a.OtherTest$Two", status: "skipped" } as const;
+    const pass: TestRun = { ...aRun, tree: digest(fingerprint(root)), cases: [aCase, skipped] };
+    const tests = ["a.OtherTest.showsGreeting", "a.OtherTest.showsGreeting"];
+    const done = finalize({ ...run, baselineTests: tests, runs: [pass] }, root);
+    expect(done.statusReason).toMatch(/Original tests missing or not passing/);
   });
 });
