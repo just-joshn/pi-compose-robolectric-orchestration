@@ -26,6 +26,7 @@ import {
 import {
   advance,
   backtrack,
+  cannotRunTests,
   currentPhase,
   describeRun,
   type Finding,
@@ -276,7 +277,6 @@ async function regressionCheck(run: Run, deps: Deps): Promise<StepResult> {
 }
 
 const key = (f: Omit<Finding, "source">) => [f.file, f.line, f.rule, f.message].join("\0");
-const ranNothing = (r: TestRun) => r.outcome === "build-error" || r.outcome === "no-tests";
 
 export function addFinding(run: Run, raw: Omit<Finding, "source">, cwd: string): StepResult {
   if (currentPhase(run)?.kind !== "findings") reject(`Not in a review phase. ${nextStep(run)}`);
@@ -292,15 +292,13 @@ export function addFinding(run: Run, raw: Omit<Finding, "source">, cwd: string):
   );
 }
 
-/** Blocking needs evidence: the two most recent runs executed no tests. */
 export function block(run: Run, reason: string): StepResult {
   if (run.status !== "active") reject(`No active workflow to block. ${nextStep(run)}`);
-  const recent = run.runs.slice(-2);
-  if (recent.length < 2 || !recent.every(ranNothing))
+  const evidence =
+    cannotRunTests(run) ??
     reject(
       "Blocking needs evidence: the two most recent extension runs must both fail to execute tests. Continue the workflow.",
     );
-  const evidence = `runs #${recent.map((r) => r.id).join(", #")} could not execute tests`;
   const blocked = finish(run, "blocked", `${reason} (${evidence})`);
   return result(blocked, nextStep(blocked));
 }

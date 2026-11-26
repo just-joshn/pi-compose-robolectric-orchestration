@@ -11,6 +11,7 @@ import {
   addRun,
   advance,
   backtrack,
+  cannotRunTests,
   currentPhase,
   describeRun,
   finish,
@@ -121,7 +122,11 @@ export async function inventory(run: Run, deps: Deps): Promise<StepResult> {
   if (r.outcome === "passed" || r.outcome === "failed")
     return result(advance(next), describeRun(r));
   const reason = `The targets did not run before any change (${r.outcome}), so their cases are unknown.`;
-  return result(finish(next, "blocked", reason), describeRun(r), reason);
+  const stuck = cannotRunTests(next);
+  if (stuck) return result(finish(next, "blocked", `${reason} (${stuck})`), describeRun(r));
+  const retry =
+    "Call compose_test_step to run them again; a second run that executes nothing blocks the workflow.";
+  return result(next, describeRun(r), `${reason} ${retry}`);
 }
 
 export async function stress(run: Run, deps: Deps): Promise<StepResult> {

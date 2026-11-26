@@ -134,6 +134,14 @@ export const addRun = (run: Run, testRun: Omit<TestRun, "id">): [Run, TestRun] =
   return [revise(run, { runs: [...run.runs, recorded] }), recorded];
 };
 
+export const ranNothing = (r: TestRun) => r.outcome === "build-error" || r.outcome === "no-tests";
+
+export function cannotRunTests(run: Run): string | undefined {
+  const recent = run.runs.slice(-2);
+  if (recent.length < 2 || !recent.every(ranNothing)) return undefined;
+  return `runs #${recent.map((r) => r.id).join(", #")} could not execute tests`;
+}
+
 const isTarget = (v: unknown): v is Target =>
   isRecord(v) && isString(v["file"]) && (v["method"] === undefined || isString(v["method"]));
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);

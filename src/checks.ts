@@ -6,7 +6,7 @@ import { ofTest, type TestCase } from "./gradle.ts";
 import { isStringRecord } from "./guards.ts";
 import { ignoredDeclarations, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isSource } from "./paths.ts";
-import { backtrack, finish, type Run, type TestRun } from "./state.ts";
+import { backtrack, finish, ranNothing, type Run, type TestRun } from "./state.ts";
 import { atomicWrite } from "./swap.ts";
 import { changedPaths, committed, digest, type Fingerprint, fingerprint } from "./tree.ts";
 import { allowedChanges, workflows } from "./workflows.ts";
@@ -122,13 +122,14 @@ const passes = (r: TestRun, test: string) =>
   r.cases.filter((c) => c.status === "passed" && ofTest(caseId(c), test)).length;
 
 /**
- * Cases of the start's tests, each parameterized case on its own, that ran in the first run but
- * do not pass in `last`. A class-level failure names no test, so a fix may remove it.
+ * Cases of the start's tests, each parameterized case on its own, that ran in the first run to
+ * pass or fail but do not pass in `last`; a run a crash cut short may lack cases. A class-level
+ * failure names no test, so a fix may remove it.
  */
 function lostCases(run: Run, last: TestRun): string[] {
   const ids = (cases: readonly TestCase[]) =>
     cases.map(caseId).filter((id) => run.baselineTests.some((t) => ofTest(id, t)));
-  const first = run.runs.find((r) => r.cases.length > 0)?.cases ?? [];
+  const first = run.runs.find((r) => !ranNothing(r))?.cases ?? [];
   const ran = ids(first.filter((c) => c.status !== "skipped"));
   return surplus(ran, ids(last.cases.filter((c) => c.status === "passed")));
 }

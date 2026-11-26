@@ -10,6 +10,7 @@ import { digest, fingerprint } from "../src/tree.ts";
 import type { WorkflowId } from "../src/workflows.ts";
 import {
   begin,
+  behavior,
   BREAK,
   deps,
   MAIN_FILE,
@@ -94,11 +95,44 @@ describe("a parameterized case dropped during a test-preserving workflow", () =>
 });
 
 describe("fix-flaky's run before the fix", () => {
-  it("blocks when the targets do not run, since their cases are unknown", async () => {
+  it("runs again after a crash, since the crash may be the flakiness", async () => {
+    const { run, d } = begin(workspace(), { workflow: "fix-flaky" }, (main, _t, call) =>
+      call === 1 ? "build-error" : behavior(main),
+    );
+    const crashed = await step(run, d);
+    expect(currentPhase(crashed.run)?.id).toBe("baseline");
+    expect(crashed.message).toMatch(/did not run before any change \(build-error\)/);
+    expect(currentPhase((await step(crashed.run, d)).run)?.id).toBe("fix");
+  });
+
+  it("blocks after two runs that execute nothing, since the cases stay unknown", async () => {
     const { run, d } = begin(workspace(), { workflow: "fix-flaky" }, () => "build-error");
-    const blocked = (await step(run, d)).run;
+    const once = (await step(run, d)).run;
+    expect(once.status).toBe("active");
+    const blocked = (await step(once, d)).run;
     expect(blocked.status).toBe("blocked");
-    expect(blocked.statusReason).toMatch(/did not run before any change \(build-error\)/);
+    expect(blocked.statusReason).toMatch(/runs #1, #2 could not execute tests/);
+  });
+
+  it("takes the cases from a run that finished, not one a crash cut short", async () => {
+    const root = workspace({ test: parameterized('"", "!", "?"', true) });
+    const flaky = gradle(root);
+    let calls = 0;
+    const crashOnce: Exec = async (c, a, o) => {
+      const ran = await flaky(c, a, o);
+      if (++calls > 1) return ran;
+      write(root, RESULT_XML, read(root, RESULT_XML).replace(/<testcase name="greets\[2\]".*/, ""));
+      return { ...ran, code: 1 };
+    };
+    const d = deps(root, crashOnce);
+    const input = { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] } as const;
+    let run = start(newRun("g", null), input, root).run;
+    run = (await step((await step(run, d)).run, d)).run;
+    write(root, TEST_FILE, dropQuestion(parameterized('"", "!", "?"', false)));
+    run = (await mutate((await step(run, d)).run, BREAK, d)).run;
+    expect(run.statusReason).toContain(
+      "Original tests missing or not passing: a.FooTest.greets[2].",
+    );
   });
 });
 

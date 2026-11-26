@@ -26,7 +26,7 @@ The model reads code and writes tests. The extension decides the outcome:
 - **Tests pass**: the extension runs Gradle with `--rerun` and reads the JUnit XML that run wrote. A run during which files change is discarded. The agent never runs Gradle itself. Each run passes an init script, kept outside the workspace, that lets child projects of the target module match no tests and records the test task's time, class setup included, for `performance`. The time goes to a private file whose name a build script cannot predict. A run with no recorded time counts as unmeasured, never as 0s.
 - **Tests catch bugs**: the agent proposes a break in the production code. The extension applies it, requires a test failure, and restores the file. It never overwrites a change someone else made in the meantime.
 - **Fixes are real**: `fix-failing` runs the final tests against the original code and requires them to fail there.
-- **Tests are not weakened**: lost `@Test` functions, new `@Ignore`, and deleted test files are rejected. In `fix-failing`, `fix-flaky` and `performance`, every case of the first run, each parameterized case included, must pass in the last.
+- **Tests are not weakened**: lost `@Test` functions, new `@Ignore`, and deleted test files are rejected. In `fix-failing`, `fix-flaky` and `performance`, every case of the first run that passes or fails, each parameterized case included, must pass in the last.
 - **Status**: built from recorded runs only. If files change after verification, the run reopens.
 
 The model can still stop early or write a narrow test. If it stops, the status is INCOMPLETE,
