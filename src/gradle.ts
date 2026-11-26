@@ -87,6 +87,30 @@ function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], 
   return (at: number) => bodies.some(([from, to]) => at > from && at < to);
 }
 
+function supertypes(header: string): string[] {
+  let parens = 0;
+  let angles = 0;
+  let start = -1;
+  const names: string[] = [];
+  for (let i = 0; i < header.length; i++) {
+    const ch = header[i];
+    if (parens === 0 && angles === 0) {
+      if (ch === "{" || /^where\b/.test(header.slice(i))) break;
+      if (ch === ":" && start < 0) start = i + 1;
+      else if (ch === "," && start >= 0) {
+        names.push(/^\s*(\w+)/.exec(header.slice(start, i))?.[1] ?? "");
+        start = i + 1;
+      }
+    }
+    if (ch === "(") parens++;
+    if (ch === ")") parens--;
+    if (ch === "<") angles++;
+    if (ch === ">" && header[i - 1] !== "-") angles--;
+  }
+  if (start >= 0) names.push(/^\s*(\w+)/.exec(header.slice(start))?.[1] ?? "");
+  return names;
+}
+
 export function testClasses(source: string, file: string): TestClass[] {
   const code = stripCode(source);
   const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
@@ -101,11 +125,11 @@ export function testClasses(source: string, file: string): TestClass[] {
   const tests = testFunctions(source).filter((t) => !ignore.test(t.header) && !skipped(t.at));
   const declarationsWithTests = tops.map((m, i) => {
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
-    const header = code.slice(m.index + m[0].length, to).split("{")[0] ?? "";
+    const bases = supertypes(code.slice(m.index + m[0].length, to));
     return {
       name: m[3] ?? "",
       abstract: /\b(abstract|sealed)\s/.test(m[2] ?? ""),
-      header,
+      bases,
       tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name),
     };
   });
@@ -116,11 +140,7 @@ export function testClasses(source: string, file: string): TestClass[] {
       tests: [
         ...c.tests,
         ...declarationsWithTests
-          .filter((base) =>
-            new RegExp(`\\b${base.name}\\s*(?:\\(|[,<{]|$)`).test(
-              c.header.split(":").slice(1).join(":"),
-            ),
-          )
+          .filter((base) => c.bases.includes(base.name))
           .flatMap((base) => base.tests),
       ],
     }));

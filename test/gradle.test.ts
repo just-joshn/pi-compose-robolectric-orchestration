@@ -383,3 +383,72 @@ describe("a run the operator aborts", () => {
     await expect(step(run, { ...d, ...abortedRun() })).rejects.toThrow(/cancelled/);
   });
 });
+
+it("runs a test class without treating its constructor parameter as a test subclass", async () => {
+  const root = workspace({
+    test: `package a
+abstract class Base {
+  @Test fun inherited() {}
+}
+class Fixture(val base: Base, val number: Int)
+class RealTest : Base()
+`,
+  });
+  const exec: Exec = async (_command, args) => {
+    write(
+      root,
+      "app/build/test-results/testDebugUnitTest/TEST-a.RealTest.xml",
+      '<testsuite><testcase classname="a.RealTest" name="inherited"/></testsuite>',
+    );
+    recordTask(root, args);
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  expect((await runTargets(deps(root, exec), [{ file: TEST_FILE }])).outcome).toBe("passed");
+});
+
+async function runMethod(source: string) {
+  const root = workspace({ test: source });
+  const exec: Exec = async (_command, args) => {
+    const filters = args.filter((_, i) => args[i - 1] === "--tests");
+    for (const name of ["BaseTest", "LeafTest"]) {
+      if (filters.includes(`a.${name}.inherited`)) {
+        write(
+          root,
+          `app/build/test-results/testDebugUnitTest/TEST-a.${name}.xml`,
+          `<testcase name="inherited" classname="a.${name}"/>`,
+        );
+      }
+    }
+    recordTask(root, args);
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  return runTargets(deps(root, exec), [{ file: TEST_FILE, method: "inherited" }]);
+}
+
+describe("inherited test target selection", () => {
+  it("runs the inherited method without selecting an unrelated constructor parameter", async () => {
+    const result = await runMethod(`package a
+open class BaseTest {
+  @Test fun inherited() {}
+}
+class OtherTest(val dependency: BaseTest = BaseTest()) {
+  @Test fun other() {}
+}
+`);
+    expect(result.outcome).toBe("passed");
+  });
+
+  it("runs the inherited method without selecting a generic interface argument", async () => {
+    const result = await runMethod(`package a
+interface Marker<A, B>
+open class BaseTest {
+  @Test fun inherited() {}
+}
+class OtherTest : Marker<BaseTest, String> {
+  @Test fun other() {}
+}
+`);
+    expect(result.outcome).toBe("passed");
+  });
+
+});
