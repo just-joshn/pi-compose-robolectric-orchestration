@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import type { Outcome, Target, TestCase } from "./gradle.ts";
-import { isArrayOf, isRecord, isString, isStringRecord } from "./guards.ts";
+import { isArrayOf, isOneOf, isRecord, isString, isStringRecord } from "./guards.ts";
 import type { LintFinding } from "./lint.ts";
 import type { Fingerprint } from "./tree.ts";
 import { isWorkflowId, type Phase, type WorkflowId, workflows } from "./workflows.ts";
 
-export type Purpose = "verify" | "reproduce" | "mutation" | "regression" | "stress" | "measure";
+const PURPOSES = ["verify", "reproduce", "mutation", "regression", "stress", "measure"] as const;
+export type Purpose = (typeof PURPOSES)[number];
+const OUTCOMES: readonly Outcome[] = ["passed", "failed", "build-error", "no-tests"];
 
 export interface TestRun {
   readonly id: number;
@@ -140,10 +142,15 @@ const hasNumbers = (v: Record<string, unknown>, keys: readonly string[]) =>
   keys.every((k) => typeof v[k] === "number");
 
 const isCase = (v: unknown): v is TestCase =>
-  isRecord(v) && hasStrings(v, ["className", "name", "status"]) && hasNumbers(v, ["seconds"]);
+  isRecord(v) &&
+  hasStrings(v, ["className", "name"]) &&
+  isOneOf(v["status"], ["passed", "failed", "skipped"]) &&
+  hasNumbers(v, ["seconds"]);
 const isTestRun = (v: unknown): v is TestRun =>
   isRecord(v) &&
-  hasStrings(v, ["phase", "purpose", "command", "outcome", "outputTail", "tree"]) &&
+  hasStrings(v, ["phase", "command", "outputTail", "tree"]) &&
+  isOneOf(v["purpose"], PURPOSES) &&
+  isOneOf(v["outcome"], OUTCOMES) &&
   hasNumbers(v, ["id", "exitCode", "seconds"]) &&
   isArrayOf(v["cases"], isCase);
 const isMutation = (v: unknown): v is Mutation =>
@@ -153,19 +160,21 @@ const isMutation = (v: unknown): v is Mutation =>
   typeof v["detected"] === "boolean";
 const isFinding = (v: unknown): v is Finding =>
   isRecord(v) &&
-  hasStrings(v, ["file", "rule", "severity", "message", "source"]) &&
+  hasStrings(v, ["file", "rule", "message"]) &&
+  isOneOf(v["severity"], ["error", "warning"]) &&
+  isOneOf(v["source"], ["agent", "lint"]) &&
   hasNumbers(v, ["line"]);
 const isFingerprint = (v: unknown): v is Fingerprint =>
   isRecord(v) && isNullable(v["head"], isString) && isStringRecord(v["files"]);
 
-const isStatus = (v: unknown): v is Status => STATUSES.some((s) => s === v);
 const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
 
 /** A persisted run whose fields have the expected primitive types and whose phase is reachable. */
 export function isRun(v: unknown): v is Run {
   if (!isRecord(v) || v["version"] !== 3) return false;
   const { workflow, status, phaseIndex } = v;
-  if (!isWorkflowOrNull(workflow) || !isStatus(status) || !isNumber(phaseIndex)) return false;
+  if (!isWorkflowOrNull(workflow) || !isOneOf(status, STATUSES) || !isNumber(phaseIndex))
+    return false;
   return (
     isWorkflowOrNull(v["forcedWorkflow"]) &&
     hasStrings(v, ["id", "goal", "statusReason"]) &&

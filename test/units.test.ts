@@ -417,6 +417,13 @@ describe("maintainability review regressions", () => {
       { findings: [{ file: "a" }] },
       { baseline: { head: 1, files: {} } },
       { baseline: { head: null, files: { a: 1 } } },
+      { runs: [{ ...failedRun, id: 1, outcome: "banana" }] },
+      { runs: [{ ...failedRun, id: 1, cases: [{ ...failedRun.cases[0], status: "banana" }] }] },
+      {
+        findings: [
+          { file: "a", line: 1, rule: "r", message: "m", severity: "fatal", source: "lint" },
+        ],
+      },
     ])
       expect(isRun({ ...run, ...patch })).toBe(false);
   });
