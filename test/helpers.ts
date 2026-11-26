@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { Deps } from "../src/engine.ts";
+import { type Deps, start, type StartInput } from "../src/engine.ts";
 import type { Exec } from "../src/gradle.ts";
+import { newRun } from "../src/state.ts";
 
 export const TEST_FILE = "app/src/test/java/a/FooTest.kt";
 export const MAIN_FILE = "app/src/main/java/a/Foo.kt";
@@ -97,3 +98,25 @@ export function deps(root: string, exec: Exec): Deps {
 
 export const commit = (root: string, message: string) =>
   git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", message);
+
+export const BREAK = { file: MAIN_FILE, find: '"Hello"', replace: '"BROKEN"' };
+export const twoTests = (second: string) =>
+  passingTest.replace(
+    "  @Test\n  fun showsGreeting",
+    `  @Test\n  fun ${second}() {\n    rule.onNodeWithText("Hi").assertExists()\n  }\n\n  @Test\n  fun showsGreeting`,
+  );
+
+export function begin(
+  root: string,
+  input: Partial<StartInput> = {},
+  decide: (main: string, test: string, call: number) => Verdict = behavior,
+) {
+  const gradle = fakeGradle(root, decide);
+  const d = deps(root, gradle.exec);
+  const run = start(
+    newRun("goal", null),
+    { workflow: "write-test", targets: [{ file: TEST_FILE }], ...input },
+    root,
+  ).run;
+  return { run, d, gradle };
+}

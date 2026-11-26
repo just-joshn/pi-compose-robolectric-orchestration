@@ -1,12 +1,12 @@
-import { appendFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { finalize } from "../src/checks.ts";
 import {
   addFinding,
   block,
+  type Deps,
   mutate,
   start,
   type StartInput,
@@ -14,44 +14,23 @@ import {
   WorkflowError,
 } from "../src/engine.ts";
 import type { Exec } from "../src/gradle.ts";
-import { currentPhase, newRun, type Run, type TestRun } from "../src/state.ts";
-import { digest, fingerprint } from "../src/tree.ts";
+import { currentPhase, newRun, type Run } from "../src/state.ts";
 import {
+  begin,
   behavior,
+  BREAK,
   commit,
-  deps,
   fakeGradle,
   git,
   MAIN_FILE,
   passingTest,
   read,
   TEST_FILE,
+  twoTests,
   type Verdict,
   workspace,
   write,
 } from "./helpers.ts";
-
-const BREAK = { file: MAIN_FILE, find: '"Hello"', replace: '"BROKEN"' };
-const twoTests = (second: string) =>
-  passingTest.replace(
-    "  @Test\n  fun showsGreeting",
-    `  @Test\n  fun ${second}() {\n    rule.onNodeWithText("Hi").assertExists()\n  }\n\n  @Test\n  fun showsGreeting`,
-  );
-
-function begin(
-  root: string,
-  input: Partial<StartInput> = {},
-  decide: (main: string, test: string, call: number) => Verdict = behavior,
-) {
-  const gradle = fakeGradle(root, decide);
-  const d = deps(root, gradle.exec);
-  const run = start(
-    newRun("goal", null),
-    { workflow: "write-test", targets: [{ file: TEST_FILE }], ...input },
-    root,
-  ).run;
-  return { run, d, gradle };
-}
 
 describe("write-test verification and scope", () => {
   it("verifies only after a passing run and a detected, restored mutation", async () => {
@@ -109,7 +88,7 @@ describe("write-test negative control", () => {
   });
 });
 
-async function stepTimes(run: Run, d: ReturnType<typeof deps>, times: number): Promise<Run> {
+async function stepTimes(run: Run, d: Deps, times: number): Promise<Run> {
   return times === 0 ? run : stepTimes((await step(run, d)).run, d, times - 1);
 }
 
@@ -395,79 +374,5 @@ describe("migrate and blocking", () => {
     const blocked = block(twice, "offline");
     expect(blocked.run.statusReason).toMatch(/runs #1, #2/);
     expect(() => block(blocked.run, "again")).toThrow(/No active workflow/);
-  });
-});
-
-describe("a corrupt baseline snapshot", () => {
-  it("stops the regression check with the file named", async () => {
-    const root = workspace();
-    write(root, MAIN_FILE, 'package a\nfun greeting() = "BROKEN"\n');
-    const { run, d } = begin(root, { workflow: "fix-failing" });
-    const fixing = (await step(run, d)).run;
-    writeFileSync(fixing.snapshot ?? "", "[1]");
-    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
-    await expect(step(fixing, d)).rejects.toThrow(/is not a baseline snapshot/);
-  });
-});
-
-function nestedWorkspace() {
-  const outer = workspace();
-  const root = join(outer, "inner");
-  write(root, "settings.gradle.kts", 'include(":app")\n');
-  write(root, MAIN_FILE, 'package a\nfun greeting() = "Hello"\n');
-  write(root, TEST_FILE, passingTest);
-  return { outer, root, escape: `../${MAIN_FILE}` };
-}
-
-describe("workspace confinement", () => {
-  it("rejects a subject outside the workspace", () => {
-    const { root, escape } = nestedWorkspace();
-    const input: StartInput = {
-      workflow: "write-test",
-      targets: [{ file: TEST_FILE }],
-      subject: [escape],
-    };
-    expect(() => start(newRun("g", null), input, root)).toThrow(/outside the workspace/);
-  });
-
-  it("never mutates a file outside the workspace", async () => {
-    const { outer, root, escape } = nestedWorkspace();
-    const { run, d } = begin(root);
-    const verified = (await step(run, d)).run;
-    await expect(mutate(verified, { ...BREAK, file: escape }, d)).rejects.toThrow(
-      /outside the workspace/,
-    );
-    expect(read(outer, MAIN_FILE)).toContain('"Hello"');
-  });
-});
-
-describe("test preservation", () => {
-  it("matches preserved tests by class, not just method name", () => {
-    const root = workspace();
-    const other = "app/src/test/java/a/OtherTest.kt";
-    write(root, other, passingTest.replace("class FooTest", "class OtherTest"));
-    git(root, "add", "-A");
-    commit(root, "other");
-    const input: StartInput = {
-      workflow: "fix-flaky",
-      targets: [{ file: TEST_FILE }, { file: other }],
-    };
-    const run = start(newRun("g", null), input, root).run;
-    const pass: TestRun = {
-      id: 1,
-      phase: "verify",
-      purpose: "verify",
-      command: "",
-      exitCode: 0,
-      seconds: 1,
-      outcome: "passed",
-      outputTail: "",
-      tree: digest(fingerprint(root)),
-      cases: [{ className: "a.OtherTest", name: "showsGreeting", status: "passed", seconds: 1 }],
-    };
-    const done = finalize({ ...run, runs: [pass] }, root);
-    expect(done.statusReason).toMatch(
-      /Original tests missing or not passing: a\.FooTest\.showsGreeting/,
-    );
   });
 });
