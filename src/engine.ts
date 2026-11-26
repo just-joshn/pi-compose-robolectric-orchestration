@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import {
@@ -126,7 +126,9 @@ function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
     ...(input.subject ?? []),
     ...(source ? [source] : []),
   ]) {
-    if (repository(dirname(join(cwd, file))) !== workspaceRepo)
+    const path = join(cwd, file);
+    const parent = dirname(existsSync(path) ? realpathSync(path) : path);
+    if (repository(parent) !== workspaceRepo)
       reject(`${file} is in a different git repository. Run from inside that repository.`);
   }
   return input;

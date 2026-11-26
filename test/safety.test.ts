@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -450,4 +457,44 @@ describe("swapping in a file whose directory is gone", () => {
     expect(seen.value).toBe("original");
     expect(existsSync(file)).toBe(false);
   });
+});
+it("rejects a target symlinked to a file in a nested repository", () => {
+  const root = workspace();
+  const nestedRepo = join(root, "feature");
+  write(nestedRepo, "RealTest.kt", passingTest);
+  git(nestedRepo, "init", "-q");
+  const target = "app/src/test/java/a/LinkedTest.kt";
+  symlinkSync(join(nestedRepo, "RealTest.kt"), join(root, target));
+
+  expect(() =>
+    start(newRun("review test", null), { workflow: "review", targets: [{ file: target }] }, root),
+  ).toThrow(/different git repository/i);
+});
+
+it("rejects symlinked subjects and migration sources in a nested repository", () => {
+  const root = workspace();
+  const nestedRepo = join(root, "feature");
+  write(nestedRepo, "Real.kt", passingTest);
+  git(nestedRepo, "init", "-q");
+  const subject = "app/src/main/java/a/Linked.kt";
+  const source = "app/src/androidTest/java/a/Linked.kt";
+  mkdirSync(join(root, "app/src/androidTest/java/a"), { recursive: true });
+  symlinkSync(join(nestedRepo, "Real.kt"), join(root, subject));
+  symlinkSync(join(nestedRepo, "Real.kt"), join(root, source));
+  const inputs: StartInput[] = [
+    { workflow: "write-test", targets: [{ file: TEST_FILE }], subject: [subject] },
+    { workflow: "migrate", targets: [{ file: TEST_FILE }], source },
+  ];
+  for (const input of inputs)
+    expect(() => start(newRun("g", null), input, root)).toThrow(/different git repository/i);
+});
+
+it("accepts a target symlinked to a file in the workspace repository", () => {
+  const root = workspace();
+  const target = "app/src/test/java/a/LinkedTest.kt";
+  symlinkSync(join(root, TEST_FILE), join(root, target));
+  expect(
+    start(newRun("review test", null), { workflow: "review", targets: [{ file: target }] }, root)
+      .run.status,
+  ).toBe("active");
 });
