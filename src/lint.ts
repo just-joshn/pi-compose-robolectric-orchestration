@@ -102,7 +102,7 @@ function countBefore(sorted: readonly number[], index: number): number {
 
 const blank = (text: string) => text.replace(/[^\n]/g, " ");
 
-const LITERAL = /\/\/[^\n]*|\/\*|"""[\s\S]*?(?:"""|$)|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])'/g;
+const LITERAL = /\/\/[^\n]*|\/\*|"""|"|'(?:\\.|[^'\\\n])'/g;
 const COMMENT_MARK = /\/\*|\*\//g;
 
 /** Kotlin block comments nest. */
@@ -116,16 +116,49 @@ function commentEnd(source: string, start: number): number {
   return source.length;
 }
 
+/** End of a string opened by `quote` at `start`; `${...}` templates may hold their own strings. */
+function stringEnd(source: string, start: number, quote: string): number {
+  let i = start + quote.length;
+  while (i < source.length && !source.startsWith(quote, i)) {
+    if (quote === '"' && source[i] === "\n") return i;
+    if (quote === '"' && source[i] === "\\") i += 2;
+    else if (source.startsWith("${", i)) i = templateEnd(source, i + 2);
+    else i++;
+  }
+  return Math.min(i + quote.length, source.length);
+}
+
+function templateEnd(source: string, start: number): number {
+  let i = start;
+  for (let depth = 1; i < source.length && depth > 0;) {
+    const quote = source.startsWith('"""', i) ? '"""' : source[i] === '"' ? '"' : "";
+    if (quote) {
+      i = stringEnd(source, i, quote);
+      continue;
+    }
+    if (source[i] === "{") depth++;
+    if (source[i] === "}") depth--;
+    i++;
+  }
+  return i;
+}
+
+function literalEnd(source: string, start: number, token: string): number {
+  if (token === "/*") return commentEnd(source, start);
+  if (token === '"' || token === '"""') return stringEnd(source, start, token);
+  return start + token.length;
+}
+
 /**
  * Blank out comments and string literals, keeping every newline and offset, so rules only see
- * code. Handles //, nested block comments, "...", """...""" and char literals.
+ * code. Handles //, nested block comments, "...", """...""" with templates, and char literals.
  */
 export function stripCode(source: string): string {
   let out = "";
   let last = 0;
   LITERAL.lastIndex = 0;
   for (let m = LITERAL.exec(source); m; m = LITERAL.exec(source)) {
-    const end = m[0] === "/*" ? commentEnd(source, m.index) : m.index + m[0].length;
+    const end = literalEnd(source, m.index, m[0]);
     const text = source.slice(m.index, end);
     const quoted = text.startsWith('"') || text.startsWith("'");
     out += source.slice(last, m.index);

@@ -377,6 +377,12 @@ describe("Kotlin the scanner must read like the compiler", () => {
     expect(lintTestSource("app/src/test/T.kt", source)).toEqual([]);
   });
 
+  it("keeps quotes and braces inside string templates out of the code", () => {
+    const source =
+      'class T {\n  @Test fun demo() {\n    val text = "${if (true) "}" else "x"}"\n    val raw = """${"\\""}"""\n    assertEquals("}", text)\n  }\n}';
+    expect(lintTestSource("app/src/test/T.kt", source)).toEqual([]);
+  });
+
   it("counts assertions made through a backtick-named helper", () => {
     const source =
       "class T {\n  fun `check [thing]`() { assert(true) }\n  @Test fun test() { `check [thing]`() }\n}";
