@@ -87,7 +87,7 @@ function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], 
   return (at: number) => bodies.some(([from, to]) => at > from && at < to);
 }
 
-const supertypeName = (part: string) => /^\s*([\w.]+)/.exec(part)?.[1]?.split(".").at(-1) ?? "";
+const supertypeName = (part: string) => /^\s*([\w.]+)/.exec(part)?.[1] ?? "";
 
 function supertypes(header: string): string[] {
   let parens = 0;
@@ -127,7 +127,9 @@ export function testClasses(source: string, file: string): TestClass[] {
   const tests = testFunctions(source).filter((t) => !ignore.test(t.header) && !skipped(t.at));
   const declarationsWithTests = tops.map((m, i) => {
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
-    const bases = supertypes(code.slice(m.index + m[0].length, to));
+    const bases = supertypes(code.slice(m.index + m[0].length, to)).map((type) =>
+      pkg && type.startsWith(`${pkg}.`) ? type.slice(pkg.length + 1) : type,
+    );
     const own = tests
       .filter((t) => t.at >= from && t.at < to)
       .map((t) => {

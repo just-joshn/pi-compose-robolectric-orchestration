@@ -468,6 +468,20 @@ class OtherTest {
     ]);
   });
 
+  it("does not inherit from a same-named class in another package", () => {
+    const source = `package a
+open class Base {
+  @Test fun inherited() { assert(true) }
+}
+class Other : support.Base() {
+  @Test fun other() { assert(true) }
+}`;
+    expect(testClasses(source, "app/src/test/java/a/Tests.kt")).toEqual([
+      { name: "a.Base", tests: ["inherited"] },
+      { name: "a.Other", tests: ["other"] },
+    ]);
+  });
+
   it.each([
     ["a package-qualified superclass", "class Leaf : a.Base()"],
     ["a comparison in a constructor default", "class Leaf(val enabled: Boolean = 2 > 1) : Base()"],
