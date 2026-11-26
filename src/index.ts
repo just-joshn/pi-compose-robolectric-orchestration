@@ -62,11 +62,12 @@ function registerRestore(pi: ExtensionAPI, session: Session) {
   pi.on("session_tree", restore);
 }
 
-function control(session: Session, first: string): string | undefined {
+/** "status" and "cancel" are commands only as the whole argument; anything longer is a goal. */
+function control(session: Session, request: string): string | undefined {
   const run = session.run;
-  if (!first || first === "status")
+  if (!request || request === "status")
     return run ? report(run) : `No compose-test run. Workflows: ${workflowIds.join(", ")}`;
-  if (first !== "cancel") return undefined;
+  if (request !== "cancel") return undefined;
   if (!run || terminal(run.status)) return "No active compose-test run.";
   return report(session.set(finish(run, "incomplete", "Cancelled by the operator.")));
 }
@@ -90,11 +91,12 @@ function registerCommand(pi: ExtensionAPI, session: Session) {
       return items.length ? items : null;
     },
     handler: async (args, ctx) => {
-      const [first = "", ...rest] = args.trim().split(/\s+/);
-      const answer = control(session, first);
+      const request = args.trim();
+      const answer = control(session, request);
       if (answer !== undefined) return say(ctx, answer);
+      const [first = "", ...rest] = request.split(/\s+/);
       const forced = isWorkflowId(first) ? first : null;
-      const goal = forced ? rest.join(" ") : args.trim();
+      const goal = forced ? rest.join(" ") : request;
       if (!goal) return say(ctx, "Describe the goal after the workflow name.");
       const run = session.run;
       if (run && !terminal(run.status))

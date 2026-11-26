@@ -363,3 +363,17 @@ describe("tool paths Pi resolves before writing", () => {
     expect((await h.call("compose_test_step")).details["status"]).toBe("verified");
   });
 });
+
+describe("a goal that starts with a control word", () => {
+  it("is a goal, while the bare word still controls the run", async () => {
+    const h = harness(workspace());
+    await h.run("Write a test for the login screen");
+    await h.run("cancel button test is flaky on CI");
+    expect(h.sent.at(-1)).toContain("cancel button test is flaky on CI");
+    await h.run("status of the profile screen needs a test");
+    expect(h.sent).toHaveLength(3);
+    expect(await h.status()).toContain("Goal: status of the profile screen needs a test");
+    await h.run("cancel");
+    expect(await h.status()).toContain("Cancelled by the operator");
+  });
+});
