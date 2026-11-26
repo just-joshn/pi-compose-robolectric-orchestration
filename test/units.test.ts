@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { start } from "../src/engine.ts";
 import { className, gradleConfig, parseJUnitXml } from "../src/gradle.ts";
-import { countIgnores, lintTestSource, testFunctions } from "../src/lint.ts";
+import { ignoredDeclarations, lintTestSource, testFunctions } from "../src/lint.ts";
 import { categorize } from "../src/paths.ts";
 import { addRun, finish, isRun, newRun, report } from "../src/state.ts";
 import { recoverSwap, stateDir, withSwappedFiles } from "../src/swap.ts";
@@ -367,8 +367,9 @@ describe("Kotlin the scanner must read like the compiler", () => {
     const source =
       "import org.junit.Test as JUnitTest\nimport org.junit.Ignore as Skip\nclass T {\n  @Skip\n  @JUnitTest fun a() { Thread.sleep(1) }\n}";
     expect(testFunctions(source).map((t) => t.name)).toEqual(["a"]);
-    expect(countIgnores(source)).toBe(1);
-    expect(countIgnores("class T {\n  @Test @Ignore fun a() {}\n}")).toBe(1);
+    expect(ignoredDeclarations(source)).toEqual(["a"]);
+    expect(ignoredDeclarations("class T {\n  @Test @Ignore fun a() {}\n}")).toEqual(["a"]);
+    expect(ignoredDeclarations("@Ignore\nclass T {\n  @Test fun a() {}\n}")).toEqual(["T"]);
     expect(lintTestSource("app/src/test/T.kt", source).map((f) => f.rule)).toContain(
       "no-assertion",
     );

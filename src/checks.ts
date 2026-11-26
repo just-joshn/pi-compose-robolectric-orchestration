@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isStringRecord } from "./guards.ts";
-import { countIgnores, lintTestSource, testFunctions } from "./lint.ts";
+import { ignoredDeclarations, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isSource } from "./paths.ts";
 import { backtrack, finish, type Run, type TestRun } from "./state.ts";
 import { atomicWrite } from "./swap.ts";
@@ -76,7 +76,9 @@ export function weakenedTests(run: Run, cwd: string, changed: readonly string[])
     const lost = testFunctions(before).filter((t) => !names.has(t.name));
     if (exists && lost.length && !reshape.has(path))
       weakened.push(`${path} lost tests: ${lost.map((t) => t.name).join(", ")}`);
-    if (countIgnores(after) > countIgnores(before)) weakened.push(`${path} gained @Ignore`);
+    const wasIgnored = new Set(ignoredDeclarations(before));
+    const ignored = ignoredDeclarations(after).filter((name) => !wasIgnored.has(name));
+    if (ignored.length) weakened.push(`${path} gained @Ignore on ${ignored.join(", ")}`);
   }
   return weakened;
 }

@@ -183,3 +183,24 @@ describe("restored test cases", () => {
     expect(isRun(run)).toBe(false);
   });
 });
+
+describe("moving an existing @Ignore", () => {
+  it("counts as ignoring the test it now sits on", () => {
+    const ignoredOther = twoTests("other").replace(
+      "  @Test\n  fun other",
+      "  @Ignore\n  @Test\n  fun other",
+    );
+    const root = workspace({ test: ignoredOther });
+    const run = start(
+      newRun("g", null),
+      { workflow: "write-test", targets: [{ file: TEST_FILE }] },
+      root,
+    ).run;
+    const moved = twoTests("other").replace(
+      "  @Test\n  fun showsGreeting",
+      "  @Ignore\n  @Test\n  fun showsGreeting",
+    );
+    write(root, TEST_FILE, moved);
+    expect(editProblem(run, root)).toMatch(/gained @Ignore on showsGreeting/);
+  });
+});

@@ -316,7 +316,10 @@ export function lintTestSource(file: string, source: string): LintFinding[] {
   return findings.toSorted((a, b) => a.line - b.line);
 }
 
-export function countIgnores(source: string): number {
+/** The function or class each @Ignore applies to, so moving one onto another test counts. */
+export function ignoredDeclarations(source: string): string[] {
   const code = stripCode(source);
-  return code.match(new RegExp(annotation(code, "Ignore").source, "g"))?.length ?? 0;
+  const declaration = "[\\s\\S]*?\\b(?:fun|class|object)\\s+(?:<[^>]*>\\s*)?(`[^`]+`|\\w+)";
+  const ignored = new RegExp(`${annotation(code, "Ignore").source}${declaration}`, "g");
+  return [...code.matchAll(ignored)].map((m) => (m[1] ?? "").replaceAll("`", ""));
 }
