@@ -89,6 +89,44 @@ function nestedWorkspace() {
 }
 
 describe("workspace confinement", () => {
+  it("rejects a target in a git submodule before starting", () => {
+    const library = mkdtempSync(join(tmpdir(), "compose-submodule-"));
+    const file = "src/test/java/a/FooTest.kt";
+    write(library, file, passingTest);
+    git(library, "init", "-q");
+    git(library, "add", "-A");
+    commit(library, "base");
+    const root = workspace();
+    git(root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", library, "feature");
+    commit(root, "add submodule");
+    const input: StartInput = { workflow: "write-test", targets: [{ file: `feature/${file}` }] };
+    expect(() => start(newRun("add a test", "write-test"), input, root)).toThrow(
+      /different git repository.*run from inside/i,
+    );
+  });
+
+  it("rejects new targets, subjects, and migration sources in a nested repository", () => {
+    const root = workspace();
+    const nested = join(root, "feature");
+    write(nested, MAIN_FILE, "package a\nfun greet() = Unit\n");
+    write(nested, "app/src/androidTest/java/a/OldTest.kt", passingTest);
+    git(nested, "init", "-q");
+    const inputs: StartInput[] = [
+      { workflow: "write-test", targets: [{ file: "feature/new/src/test/java/a/NewTest.kt" }] },
+      { workflow: "write-test", targets: [{ file: TEST_FILE }], subject: [`feature/${MAIN_FILE}`] },
+      {
+        workflow: "migrate",
+        targets: [{ file: TEST_FILE }],
+        source: "feature/app/src/androidTest/java/a/OldTest.kt",
+      },
+    ];
+    for (const input of inputs) {
+      expect(() => start(newRun("g", null), input, root)).toThrow(
+        /different git repository.*run from inside/i,
+      );
+    }
+  });
+
   it("rejects a subject outside the workspace", () => {
     const { root, escape } = nestedWorkspace();
     const input: StartInput = {

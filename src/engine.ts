@@ -1,5 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import {
   baselineContent,
@@ -69,6 +70,12 @@ function confine(cwd: string, file: string): string {
 const notFile = (cwd: string, file: string) =>
   existsSync(join(cwd, file)) && !statSync(join(cwd, file)).isFile();
 
+function repository(dir: string): string | undefined {
+  while (!existsSync(dir)) dir = dirname(dir);
+  const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: dir, encoding: "utf8" });
+  return git.status === 0 ? git.stdout.trim() : undefined;
+}
+
 function checkMethod(cwd: string, file: string, method: string): void {
   if (!existsSync(join(cwd, file))) return;
   const names = testFunctions(read(cwd, file)).map((t) => t.name);
@@ -113,6 +120,15 @@ function parseStart(run: Run, raw: StartInput, cwd: string): StartInput {
   if (input.workflow === "migrate" && !androidTest)
     reject("migrate needs source: an existing androidTest .kt file.");
   if (input.workflow !== "migrate" && source) reject("source is only for migrate.");
+  const workspaceRepo = repository(cwd);
+  for (const file of [
+    ...input.targets.map((target) => target.file),
+    ...(input.subject ?? []),
+    ...(source ? [source] : []),
+  ]) {
+    if (repository(dirname(join(cwd, file))) !== workspaceRepo)
+      reject(`${file} is in a different git repository. Run from inside that repository.`);
+  }
   return input;
 }
 
