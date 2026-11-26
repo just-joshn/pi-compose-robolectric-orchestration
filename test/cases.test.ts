@@ -195,3 +195,160 @@ describe("a class-level failure that a fix removes", () => {
     expect(finalize({ ...run, runs, mutations }, root).status).toBe("verified");
   });
 });
+const enclosed = (first: string, second: string) => `package a
+import org.junit.Ignore
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.experimental.runners.Enclosed
+
+@RunWith(Enclosed::class)
+class FooTest {
+  class First {
+    ${first}@Test fun works() { assert(true) }
+  }
+  class Second {
+    ${second}@Test fun works() { assert(true) }
+  }
+}
+`;
+
+const nestedRun = (id: number, tree: string, first: "passed" | "skipped"): TestRun => ({
+  id,
+  phase: "test",
+  purpose: id === 1 ? "inventory" : "stress",
+  command: "",
+  exitCode: 0,
+  outcome: "passed",
+  cases: [
+    { className: "a.FooTest$First", name: "works", status: first, seconds: 1 },
+    {
+      className: "a.FooTest$Second",
+      name: "works",
+      status: first === "passed" ? "skipped" : "passed",
+      seconds: 1,
+    },
+  ],
+  seconds: 1,
+  testSeconds: 1,
+  outputTail: "",
+  tree,
+});
+
+it("rejects moving @Ignore from one nested test to another with the same method name", () => {
+  const root = workspace({ test: enclosed("", "@Ignore ") });
+  const run = start(
+    newRun("g", null),
+    {
+      workflow: "fix-flaky",
+      targets: [{ file: TEST_FILE }],
+    },
+    root,
+  ).run;
+  const before = digest(fingerprint(root));
+  write(root, TEST_FILE, enclosed("@Ignore ", ""));
+  const after = digest(fingerprint(root));
+  const done = finalize(
+    {
+      ...run,
+      runs: [nestedRun(1, before, "passed"), nestedRun(2, after, "skipped")],
+      mutations: [{ ...BREAK, runId: 3, tree: after, detected: true }],
+      phaseIndex: 4,
+    },
+    root,
+  );
+  expect(done.status).not.toBe("verified");
+});
+
+it("tracks parameterized cases in deeply nested classes separately", () => {
+  const root = workspace({
+    test: `package a
+class FooTest {
+  class First {
+    class Deep {
+      @Test fun works() {}
+    }
+  }
+  class Second {
+    @Test fun works() {}
+  }
+}
+`,
+  });
+  const run = start(
+    newRun("g", null),
+    { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] },
+    root,
+  ).run;
+  const tree = digest(fingerprint(root));
+  const ran = (id: number, secondCase: "passed" | "skipped"): TestRun => ({
+    id,
+    phase: "test",
+    purpose: id === 1 ? "inventory" : "stress",
+    command: "",
+    exitCode: 0,
+    outcome: "passed",
+    cases: [
+      { className: "a.FooTest$First$Deep", name: "works[0]", status: "passed", seconds: 1 },
+      { className: "a.FooTest$First$Deep", name: "works[1]", status: secondCase, seconds: 1 },
+      { className: "a.FooTest$Second", name: "works[0]", status: "passed", seconds: 1 },
+    ],
+    seconds: 1,
+    testSeconds: 1,
+    outputTail: "",
+    tree,
+  });
+  const done = finalize(
+    {
+      ...run,
+      runs: [ran(1, "passed"), ran(2, "skipped")],
+      mutations: [{ ...BREAK, runId: 3, tree, detected: true }],
+      phaseIndex: 4,
+    },
+    root,
+  );
+  expect(run.baselineTests).toEqual(["a.FooTest$First$Deep.works", "a.FooTest$Second.works"]);
+  expect(done.statusReason).toContain("a.FooTest$First$Deep.works[1]");
+});
+
+it("accepts a preserved passing nested test when a same-named sibling is skipped by an assumption", () => {
+  const source = enclosed("", "").replace(
+    "class Second {\n    @Test fun works() { assert(true) }",
+    "class Second {\n    @Test fun works() { org.junit.Assume.assumeTrue(false); assert(true) }",
+  );
+  const root = workspace({ test: source });
+  const run = start(
+    newRun("g", null),
+    {
+      workflow: "fix-flaky",
+      targets: [{ file: TEST_FILE }],
+    },
+    root,
+  ).run;
+  const tree = digest(fingerprint(root));
+  const ran = (id: number): TestRun => ({
+    id,
+    phase: "test",
+    purpose: id === 1 ? "inventory" : "stress",
+    command: "",
+    exitCode: 0,
+    outcome: "passed",
+    cases: [
+      { className: "a.FooTest$First", name: "works", status: "passed", seconds: 1 },
+      { className: "a.FooTest$Second", name: "works", status: "skipped", seconds: 0 },
+    ],
+    seconds: 1,
+    testSeconds: 1,
+    outputTail: "",
+    tree,
+  });
+  const done = finalize(
+    {
+      ...run,
+      runs: [ran(1), ran(2)],
+      mutations: [{ ...BREAK, runId: 3, tree, detected: true }],
+      phaseIndex: 4,
+    },
+    root,
+  );
+  expect(done.statusReason).toBe("All checks passed.");
+});

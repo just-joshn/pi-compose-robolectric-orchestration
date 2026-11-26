@@ -71,6 +71,7 @@ export function gradleConfig(env = process.env) {
 export interface TestClass {
   readonly name: string;
   readonly tests: readonly string[];
+  readonly testIds?: readonly string[];
 }
 
 const DECLARATION = new RegExp(
@@ -124,13 +125,19 @@ export function testClasses(source: string, file: string): TestClass[] {
   });
   const ignore = annotation(code, "Ignore");
   const skipped = inIgnoredClass(code, declarations, ignore);
-  const tests = testFunctions(source);
+  const bodies = declarations.flatMap((m, i) => {
+    const open = code.indexOf("{", m.index + m[0].length);
+    return open >= 0 && open < (declarations[i + 1]?.index ?? code.length)
+      ? [{ name: m[3] ?? "", from: open, to: blockEnd(code, open) }]
+      : [];
+  });
+  const functions = testFunctions(source);
   const declarationsWithTests = tops.map((m, i) => {
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
     const bases = supertypes(code.slice(m.index + m[0].length, to)).map((type) =>
       pkg && type.startsWith(`${pkg}.`) ? type.slice(pkg.length + 1) : type,
     );
-    const own = tests
+    const own = functions
       .filter((t) => t.at >= from && t.at < to)
       .map((t) => {
         const before = code.slice(from, t.at);
@@ -139,6 +146,7 @@ export function testClasses(source: string, file: string): TestClass[] {
           ignored: ignore.test(t.header),
           direct: before.split("{").length - before.split("}").length === 1,
           inIgnoredClass: skipped(t.at),
+          owners: bodies.filter((body) => body.from < t.at && t.at < body.to).map((b) => b.name),
         };
       });
     return {
@@ -147,7 +155,7 @@ export function testClasses(source: string, file: string): TestClass[] {
       ignored: ignore.test(m[1] ?? ""),
       bases,
       direct: own.filter((t) => t.direct),
-      nested: own.filter((t) => !t.direct && !t.ignored && !t.inIgnoredClass).map((t) => t.name),
+      nested: own.filter((t) => !t.direct && !t.ignored && !t.inIgnoredClass),
     };
   });
   const byName = new Map(declarationsWithTests.map((c) => [c.name, c]));
@@ -170,14 +178,22 @@ export function testClasses(source: string, file: string): TestClass[] {
     .map((c) => {
       const seen = new Set([c.name]);
       const declared = new Set(c.direct.map((test) => test.name));
-      return {
-        name: qualify(c.name),
-        tests: [
-          ...c.direct.filter((test) => !test.ignored).map((test) => test.name),
-          ...c.nested,
-          ...c.bases.flatMap((b) => inherited(b, seen, declared)),
-        ],
-      };
+      const name = qualify(c.name);
+      const direct = c.direct.filter((test) => !test.ignored).map((test) => test.name);
+      const bases = c.bases.flatMap((b) => inherited(b, seen, declared));
+      const tests = [...direct, ...c.nested.map((test) => test.name), ...bases];
+      const testIds = [
+        ...direct.map((test) => `${name}.${test}`),
+        ...c.nested.map(
+          (test) =>
+            `${name}${test.owners
+              .slice(1)
+              .map((owner) => `$${owner}`)
+              .join("")}.${test.name}`,
+        ),
+        ...bases.map((test) => `${name}.${test}`),
+      ];
+      return c.nested.length ? { name, tests, testIds } : { name, tests };
     });
   const withTests = classes.filter((c) => c.tests.length > 0);
   if (withTests.length) return withTests;

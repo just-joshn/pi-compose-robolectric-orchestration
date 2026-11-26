@@ -114,7 +114,9 @@ const liveTests = (source: string, file: string) =>
 
 export const testIds = (cwd: string, files: readonly string[]) =>
   [...new Set(files)].flatMap((file) =>
-    testClasses(read(cwd, file), file).flatMap((c) => c.tests.map((n) => `${c.name}.${n}`)),
+    testClasses(read(cwd, file), file).flatMap(
+      (c) => c.testIds ?? c.tests.map((n) => `${c.name}.${n}`),
+    ),
   );
 
 export const lintErrors = (cwd: string, changed: readonly string[]) =>
@@ -123,7 +125,7 @@ export const lintErrors = (cwd: string, changed: readonly string[]) =>
     .flatMap((p) => lintTestSource(p, read(cwd, p)))
     .filter((f) => f.severity === "error");
 
-const caseId = (c: TestCase) => `${c.className.split("$")[0]}.${c.name}`;
+const caseId = (c: TestCase) => `${c.className}.${c.name}`;
 
 const passes = (r: TestRun, test: string) =>
   r.cases.filter((c) => c.status === "passed" && ofTest(caseId(c), test)).length;
