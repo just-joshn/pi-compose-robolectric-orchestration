@@ -321,7 +321,9 @@ describe("a module with a child project", () => {
     };
     expect((await runTargets(deps(root, exec), [fooTarget])).outcome).toBe("passed");
   });
+});
 
+describe("a child project's results", () => {
   it.each([
     ["app/sub", "first"],
     ["app/sub", "last"],
