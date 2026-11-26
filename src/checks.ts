@@ -27,9 +27,10 @@ export function saveSnapshot(cwd: string, baseline: Fingerprint, dir: string): s
   const files: Record<string, string> = {};
   for (const path of Object.keys(baseline.files)) {
     const category = categorize(path);
-    const regular = lstatSync(join(cwd, path), { throwIfNoEntry: false })?.isFile();
-    if ((category === "test" || category === "production") && regular)
-      files[path] = readFileSync(join(cwd, path)).toString("base64");
+    if (category !== "test" && category !== "production") continue;
+    const full = join(cwd, path);
+    if (lstatSync(full, { throwIfNoEntry: false })?.isFile())
+      files[path] = readFileSync(full).toString("base64");
   }
   const file = join(dir, `baseline-${Date.now()}.json`);
   atomicWrite(file, JSON.stringify(files));
