@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,7 +7,7 @@ import { ignoredDeclarations, lintTestSource, testFunctions } from "./lint.ts";
 import { categorize, isSource } from "./paths.ts";
 import { backtrack, finish, type Run, type TestRun } from "./state.ts";
 import { atomicWrite } from "./swap.ts";
-import { changedPaths, digest, type Fingerprint, fingerprint } from "./tree.ts";
+import { changedPaths, committed, digest, type Fingerprint, fingerprint } from "./tree.ts";
 import { allowedChanges, workflows } from "./workflows.ts";
 
 export const read = (cwd: string, file: string) =>
@@ -51,11 +50,7 @@ export function baselineContent(cwd: string, run: Run, path: string): Buffer | n
     const saved = snapshot && existsSync(snapshot) ? readSnapshot(snapshot)[path] : undefined;
     return saved === undefined ? null : Buffer.from(saved, "base64");
   }
-  const shown = spawnSync("git", ["show", `${baseline.head}:./${path}`], {
-    cwd,
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  return shown.status === 0 ? shown.stdout : null;
+  return committed(cwd, baseline.head, path);
 }
 
 const counts = (names: readonly string[]) =>

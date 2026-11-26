@@ -88,17 +88,34 @@ export function fingerprint(cwd: string): Fingerprint {
   };
 }
 
+export function committed(cwd: string, head: string, path: string): Buffer | null {
+  const shown = spawnSync("git", ["show", `${head}:./${path}`], {
+    cwd,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return shown.status === 0 ? shown.stdout : null;
+}
+
+/** A path's content hash in a fingerprint: its own entry, or the file as committed at its HEAD. */
+function contentAt(cwd: string, fp: Fingerprint, path: string): string {
+  const own = fp.files[path];
+  if (own !== undefined || !fp.head) return own ?? "deleted";
+  const content = committed(cwd, fp.head, path);
+  return content ? sha(content) : "deleted";
+}
+
 export function changedPaths(cwd: string, a: Fingerprint, b: Fingerprint): string[] {
-  const changed = new Set(
-    [...Object.keys(a.files), ...Object.keys(b.files)].filter((p) => a.files[p] !== b.files[p]),
-  );
-  if (a.head && b.head && a.head !== b.head)
-    for (const path of (
-      git(cwd, ["diff", "-z", "--relative", "--no-renames", "--name-only", a.head, b.head]) ?? ""
-    ).split("\0"))
-      if (path && (a.files[path] === undefined || a.files[path] !== b.files[path]))
-        changed.add(path);
-  return [...changed].toSorted();
+  const inCommits =
+    a.head && b.head && a.head !== b.head
+      ? (
+          git(cwd, ["diff", "-z", "--relative", "--no-renames", "--name-only", a.head, b.head]) ??
+          ""
+        )
+          .split("\0")
+          .filter(Boolean)
+      : [];
+  const paths = new Set([...Object.keys(a.files), ...Object.keys(b.files), ...inCommits]);
+  return [...paths].filter((p) => contentAt(cwd, a, p) !== contentAt(cwd, b, p)).toSorted();
 }
 
 export const digest = (fp: Fingerprint) =>

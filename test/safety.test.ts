@@ -332,3 +332,16 @@ describe("source outside migrate", () => {
     expect(() => start(newRun("g", null), input, root)).toThrow(/source is only for migrate/);
   });
 });
+
+describe("committing during a run", () => {
+  it("does not count committing unchanged start content as a change", () => {
+    const root = workspace();
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hi"\n');
+    const before = fingerprint(root);
+    commit(root, "commit the start content");
+    expect(changedPaths(root, before, fingerprint(root))).toEqual([]);
+    write(root, MAIN_FILE, 'package a\nfun greeting() = "Hey"\n');
+    commit(root, "a real change");
+    expect(changedPaths(root, before, fingerprint(root))).toEqual([MAIN_FILE]);
+  });
+});
