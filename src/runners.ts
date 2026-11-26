@@ -34,7 +34,7 @@ export async function execute(
   run: Run,
   purpose: Purpose,
   deps: Deps,
-  tree = digest(fingerprint(deps.cwd)),
+  tree: string,
 ): Promise<[Run, TestRun]> {
   const whole =
     run.workflow !== null &&
@@ -43,6 +43,16 @@ export async function execute(
   const targets = whole ? run.targets.map(({ file }) => ({ file })) : run.targets;
   const execution = await runTargets(deps, targets);
   return addRun(run, { phase: currentPhase(run)?.id ?? "", purpose, tree, ...execution });
+}
+
+async function evidence(run: Run, purpose: Purpose, deps: Deps): Promise<[Run, TestRun]> {
+  const tree = digest(fingerprint(deps.cwd));
+  const ran = await execute(run, purpose, deps, tree);
+  if (digest(fingerprint(deps.cwd)) !== tree)
+    throw new Error(
+      "Files changed while Gradle ran, so the run is not evidence. Call compose_test_step again.",
+    );
+  return ran;
 }
 
 const median = (values: readonly number[]) =>
@@ -55,14 +65,14 @@ async function repeat(
   deps: Deps,
 ): Promise<{ run: Run; recorded: TestRun[] }> {
   if (times === 0) return { run, recorded: [] };
-  const [next, r] = await execute(run, purpose, deps);
+  const [next, r] = await evidence(run, purpose, deps);
   if (r.outcome === "build-error") return { run: next, recorded: [r] };
   const rest = await repeat(next, purpose, times - 1, deps);
   return { run: rest.run, recorded: [r, ...rest.recorded] };
 }
 
 export async function verify(run: Run, deps: Deps): Promise<StepResult> {
-  const [next, r] = await execute(run, "verify", deps);
+  const [next, r] = await evidence(run, "verify", deps);
   if (r.outcome === "passed") return result(advance(next), describeRun(r));
   const reason =
     run.phaseIndex === 0
@@ -72,7 +82,7 @@ export async function verify(run: Run, deps: Deps): Promise<StepResult> {
 }
 
 export async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
-  const [next, r] = await execute(run, "reproduce", deps);
+  const [next, r] = await evidence(run, "reproduce", deps);
   if (r.outcome === "failed" || r.outcome === "build-error")
     return result(advance(next), "Reproduced.", describeRun(r));
   if (next.runs.filter((x) => x.purpose === "reproduce").length >= 2)
@@ -86,7 +96,7 @@ export async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
 }
 
 export async function inventory(run: Run, deps: Deps): Promise<StepResult> {
-  const [next, r] = await execute(run, "inventory", deps);
+  const [next, r] = await evidence(run, "inventory", deps);
   if (r.outcome === "passed" || r.outcome === "failed")
     return result(advance(next), describeRun(r));
   const reason = `The targets did not run before any change (${r.outcome}), so their cases are unknown.`;
