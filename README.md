@@ -14,7 +14,7 @@ from what it observed.
 The run ends with one of three statuses:
 
 - `VERIFIED`: every check passed on the final working tree.
-- `BLOCKED`: two extension runs could not execute any test (broken build, offline).
+- `BLOCKED`: two extension runs could not execute any test, a failure did not reproduce in two runs, or the performance baseline did not pass.
 - `INCOMPLETE`: the agent stopped, ran out of retries, or was cancelled.
 
 ## What the extension enforces
