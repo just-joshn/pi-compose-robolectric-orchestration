@@ -60,7 +60,6 @@ export interface StartInput {
   readonly source?: string;
 }
 
-/** Tool paths are relative to the workspace root and must stay inside it. */
 function confine(cwd: string, file: string) {
   if (isAbsolute(file)) reject(`${file} must be relative to the workspace root.`);
   if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);

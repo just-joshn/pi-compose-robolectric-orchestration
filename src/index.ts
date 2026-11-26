@@ -117,6 +117,7 @@ function registerToolGates(pi: ExtensionAPI, session: Session) {
   pi.on("tool_result", async (event, ctx) => {
     const run = session.run;
     if (run?.status !== "active" || event.toolName !== "read" || event.isError) return;
+    if (event.input["offset"] !== undefined || event.input["limit"] !== undefined) return;
     const path = relative(ctx.cwd, resolve(ctx.cwd, pathOf(event.input)));
     if (!run.reads.includes(path)) session.set({ ...run, reads: [...run.reads, path] });
   });

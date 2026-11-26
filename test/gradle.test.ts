@@ -56,12 +56,14 @@ describe("running Gradle per module", () => {
     ]);
     expect(gradle.calls[0]).toEqual([
       "--console=plain",
-      ":app:testDebugUnitTest",
+      "-p",
+      "app",
+      "testDebugUnitTest",
       "--rerun",
       "--tests",
       "a.FooTest.showsGreeting",
     ]);
-    expect(gradle.calls[1]).toContain(":lib:testDebugUnitTest");
+    expect(gradle.calls[1]?.slice(1, 4)).toEqual(["-p", "lib", "testDebugUnitTest"]);
     expect(result.outcome).toBe("no-tests");
     const nested = await runTargets(
       async () => {
@@ -191,7 +193,7 @@ describe("the same test class in two modules", () => {
     const files = ["app/src/test/java/a/FooTest.kt", "lib/src/test/java/a/FooTest.kt"];
     for (const file of files) write(root, file, passingTest);
     const exec: Exec = async (_c, args) => {
-      const module = args.includes(":lib:testDebugUnitTest") ? "lib" : "app";
+      const module = args.includes("lib") ? "lib" : "app";
       write(
         root,
         `${module}/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml`,
@@ -219,10 +221,25 @@ describe("a package directory named src", () => {
     );
     const tasks: string[] = [];
     const exec: Exec = async (_c, args) => {
-      tasks.push(args[1] ?? "");
+      tasks.push(args.slice(1, 4).join(" "));
       return { code: 0, stdout: "", stderr: "" };
     };
     await runTargets(exec, root, [{ file }]);
-    expect(tasks).toEqual([":app:testDebugUnitTest"]);
+    expect(tasks).toEqual(["-p app testDebugUnitTest"]);
+  });
+});
+
+describe("a module whose Gradle path differs from its directory", () => {
+  it("lets Gradle map the directory to its project", async () => {
+    const file = "android/app/src/test/java/a/FooTest.kt";
+    const root = workspace({ test: null });
+    write(root, file, passingTest);
+    const calls: string[][] = [];
+    const exec: Exec = async (_c, args) => {
+      calls.push([...args]);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await runTargets(exec, root, [{ file }]);
+    expect(calls[0]?.slice(1, 4)).toEqual(["-p", "android/app", "testDebugUnitTest"]);
   });
 });

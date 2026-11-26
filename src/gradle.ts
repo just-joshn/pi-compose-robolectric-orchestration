@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 
 import { stripCode, testFunctions } from "./lint.ts";
 import { inside } from "./paths.ts";
@@ -15,7 +15,6 @@ interface Resolved {
   readonly method: string | undefined;
   readonly root: string;
   readonly module: string;
-  readonly task: string;
   readonly className: string;
 }
 
@@ -92,7 +91,7 @@ export function testClasses(source: string, file: string): TestClass[] {
   ];
 }
 
-function resolve(cwd: string, target: Target, task: string): Resolved[] {
+function resolve(cwd: string, target: Target): Resolved[] {
   if (!inside(cwd, target.file)) throw new Error(`Target ${target.file} is outside the workspace.`);
   const absolute = join(cwd, target.file);
   if (!existsSync(absolute)) throw new Error(`Target ${target.file} does not exist.`);
@@ -104,17 +103,14 @@ function resolve(cwd: string, target: Target, task: string): Resolved[] {
     if (dirname(root) === root) throw new Error(`No settings.gradle(.kts) above ${target.file}.`);
     root = dirname(root);
   }
-  const path = relative(root, module).split(sep).filter(Boolean).join(":");
   const classes = testClasses(readFileSync(absolute, "utf8"), target.file);
   const { method } = target;
   const holding = method ? classes.filter((c) => c.tests.includes(method)) : classes;
-  const gradleTask = `${path ? `:${path}` : ""}:${task}`;
   return (holding.length ? holding : classes).map((c) => ({
     file: target.file,
     method,
     root,
     module,
-    task: gradleTask,
     className: c.name,
   }));
 }
@@ -182,6 +178,8 @@ interface Invocation {
 
 function invocation(group: readonly Resolved[], gradle: string, task: string): Invocation {
   const root = group[0]?.root ?? "";
+  // Gradle maps the module directory to its project, which may sit at a different path.
+  const project = relative(root, group[0]?.module ?? root) || ".";
   for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
   // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
@@ -192,7 +190,7 @@ function invocation(group: readonly Resolved[], gradle: string, task: string): I
   return {
     root,
     gradle: existsSync(wrapper) ? wrapper : gradle,
-    args: ["--console=plain", group[0]?.task ?? "", "--rerun", ...tests],
+    args: ["--console=plain", "-p", project, task, "--rerun", ...tests],
   };
 }
 
@@ -219,12 +217,12 @@ export async function runTargets(
   signal?: AbortSignal,
 ): Promise<Execution> {
   const config = gradleConfig();
-  const resolved = targets.flatMap((t) => resolve(cwd, t, config.task));
+  const resolved = targets.flatMap((t) => resolve(cwd, t));
   const started = Date.now();
-  const keys = new Set(resolved.map((t) => `${t.root}\0${t.task}`));
+  const keys = new Set(resolved.map((t) => `${t.root}\0${t.module}`));
   const invocations = [...keys].map((key) =>
     invocation(
-      resolved.filter((t) => `${t.root}\0${t.task}` === key),
+      resolved.filter((t) => `${t.root}\0${t.module}` === key),
       config.gradle,
       config.task,
     ),

@@ -319,3 +319,22 @@ describe("edits through a symlink", () => {
     ).toMatchObject({ block: true });
   });
 });
+
+describe("the review read gate", () => {
+  it("counts only reads of whole files", async () => {
+    const root = workspace();
+    const h = harness(root);
+    await h.run("review Check FooTest");
+    await h.call("compose_test_start", { workflow: "review", targets: [{ file: TEST_FILE }] });
+    const read = (input: Record<string, unknown>) =>
+      h.emit("tool_result", {
+        toolName: "read",
+        isError: false,
+        input: { path: TEST_FILE, ...input },
+      });
+    await read({ offset: 1, limit: 1 });
+    await expect(h.call("compose_test_step")).rejects.toThrow(/read/i);
+    await read({});
+    expect((await h.call("compose_test_step")).details["status"]).toBe("verified");
+  });
+});
