@@ -87,19 +87,20 @@ function inIgnoredClass(code: string, declarations: readonly RegExpExecArray[], 
   return (at: number) => bodies.some(([from, to]) => at > from && at < to);
 }
 
+const supertypeName = (part: string) => /^\s*([\w.]+)/.exec(part)?.[1]?.split(".").at(-1) ?? "";
+
 function supertypes(header: string): string[] {
   let parens = 0;
   let angles = 0;
   let start = -1;
   const names: string[] = [];
-  const name = (part: string) => /^\s*([\w.]+)/.exec(part)?.[1]?.split(".").at(-1) ?? "";
   for (let i = 0; i < header.length; i++) {
     const ch = header[i];
     if (parens === 0 && angles === 0) {
       if (ch === "{" || /^where\b/.test(header.slice(i))) break;
       if (ch === ":" && start < 0) start = i + 1;
       else if (ch === "," && start >= 0) {
-        names.push(name(header.slice(start, i)));
+        names.push(supertypeName(header.slice(start, i)));
         start = i + 1;
       }
     }
@@ -108,7 +109,7 @@ function supertypes(header: string): string[] {
     if (parens === 0 && ch === "<") angles++;
     if (parens === 0 && ch === ">" && header[i - 1] !== "-") angles--;
   }
-  if (start >= 0) names.push(name(header.slice(start)));
+  if (start >= 0) names.push(supertypeName(header.slice(start)));
   return names;
 }
 
@@ -127,23 +128,42 @@ export function testClasses(source: string, file: string): TestClass[] {
   const declarationsWithTests = tops.map((m, i) => {
     const [from, to] = [m.index, tops[i + 1]?.index ?? code.length];
     const bases = supertypes(code.slice(m.index + m[0].length, to));
+    const own = tests
+      .filter((t) => t.at >= from && t.at < to)
+      .map((t) => {
+        const before = code.slice(from, t.at);
+        return { name: t.name, direct: before.split("{").length - before.split("}").length === 1 };
+      });
     return {
       name: m[3] ?? "",
       abstract: /\b(abstract|sealed)\s/.test(m[2] ?? ""),
       bases,
-      tests: tests.filter((t) => t.at >= from && t.at < to).map((t) => t.name),
+      direct: own.filter((t) => t.direct).map((t) => t.name),
+      nested: own.filter((t) => !t.direct).map((t) => t.name),
     };
   });
   const byName = new Map(declarationsWithTests.map((c) => [c.name, c]));
-  const inherited = (name: string, seen: Set<string>): string[] => {
+  const inherited = (name: string, seen: Set<string>, declared: Set<string>): string[] => {
     const declaration = byName.get(name);
     if (!declaration || seen.has(name)) return [];
     seen.add(name);
-    return [...declaration.tests, ...declaration.bases.flatMap((base) => inherited(base, seen))];
+    const direct = declaration.direct.filter((test) => {
+      if (declared.has(test)) return false;
+      declared.add(test);
+      return true;
+    });
+    return [...direct, ...declaration.bases.flatMap((base) => inherited(base, seen, declared))];
   };
   const classes = declarationsWithTests
     .filter((c) => !c.abstract)
-    .map((c) => ({ name: qualify(c.name), tests: inherited(c.name, new Set()) }));
+    .map((c) => {
+      const seen = new Set([c.name]);
+      const declared = new Set(c.direct);
+      return {
+        name: qualify(c.name),
+        tests: [...c.direct, ...c.nested, ...c.bases.flatMap((b) => inherited(b, seen, declared))],
+      };
+    });
   const withTests = classes.filter((c) => c.tests.length > 0);
   if (withTests.length) return withTests;
   return [
