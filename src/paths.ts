@@ -1,5 +1,5 @@
-import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type Category = "test" | "build" | "production" | "other";
 
@@ -25,8 +25,19 @@ function within(root: string, path: string): boolean {
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-/** Inside the workspace both as written and, for an existing file, after resolving symlinks. */
+/** Where a write to `path` lands: its deepest existing ancestor resolved; undefined for a dangling symlink. */
+function landing(path: string): string | undefined {
+  if (existsSync(path)) return realpathSync(path);
+  if (lstatSync(path, { throwIfNoEntry: false })) return undefined;
+  const parent = dirname(path);
+  if (parent === path) return path;
+  const base = landing(parent);
+  return base === undefined ? undefined : join(base, basename(path));
+}
+
+/** Inside the workspace both as written and where a write would land after resolving symlinks. */
 export function inside(cwd: string, path: string): boolean {
   const full = resolve(cwd, path);
-  return within(cwd, full) && (!existsSync(full) || within(realpathSync(cwd), realpathSync(full)));
+  const target = landing(full);
+  return within(cwd, full) && target !== undefined && within(realpathSync(cwd), target);
 }

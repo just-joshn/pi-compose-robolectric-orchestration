@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -296,5 +296,26 @@ describe("a superseded run's late result", () => {
     gate.resolve();
     expect((await late).content[0]?.text).toContain("Discarded");
     expect(await h.status()).toContain("Goal: second goal");
+  });
+});
+
+describe("edits through a symlink", () => {
+  it("blocks creating a file in a symlinked directory that leads outside the workspace", async () => {
+    const root = workspace({ test: null });
+    const outside = mkdtempSync(join(tmpdir(), "outside-"));
+    mkdirSync(join(root, "app/src/test/java/a"), { recursive: true });
+    symlinkSync(outside, join(root, "app/src/test/java/a/link"));
+    const h = harness(root);
+    await h.run("Add a test");
+    await h.call("compose_test_start", { workflow: "write-test", targets: [{ file: TEST_FILE }] });
+    const path = "app/src/test/java/a/link/Evil.kt";
+    expect(await h.emit("tool_call", { toolName: "write", input: { path } })).toMatchObject({
+      block: true,
+    });
+    symlinkSync(join(outside, "Missing.kt"), join(root, "app/src/test/java/a/Dangling.kt"));
+    const dangling = "app/src/test/java/a/Dangling.kt";
+    expect(
+      await h.emit("tool_call", { toolName: "write", input: { path: dangling } }),
+    ).toMatchObject({ block: true });
   });
 });

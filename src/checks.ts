@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isStringRecord } from "./guards.ts";
@@ -27,7 +27,8 @@ export function saveSnapshot(cwd: string, baseline: Fingerprint, dir: string): s
   const files: Record<string, string> = {};
   for (const path of Object.keys(baseline.files)) {
     const category = categorize(path);
-    if ((category === "test" || category === "production") && existsSync(join(cwd, path)))
+    const regular = lstatSync(join(cwd, path), { throwIfNoEntry: false })?.isFile();
+    if ((category === "test" || category === "production") && regular)
       files[path] = readFileSync(join(cwd, path)).toString("base64");
   }
   const file = join(dir, `baseline-${Date.now()}.json`);
