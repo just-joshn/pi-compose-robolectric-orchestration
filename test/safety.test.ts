@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -376,5 +376,16 @@ describe("absolute tool paths", () => {
     const root = workspace();
     const input: StartInput = { workflow: "refactor", targets: [{ file: join(root, TEST_FILE) }] };
     expect(() => start(newRun("g", null), input, root)).toThrow(/relative to the workspace root/);
+  });
+});
+
+describe("swapping in a file whose directory is gone", () => {
+  it("creates the directory for the run and removes the file afterwards", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "compose-test-state-"));
+    const file = join(mkdtempSync(join(tmpdir(), "compose-test-swap-")), "gone/Old.kt");
+    const swap = [{ path: file, content: Buffer.from("original") }];
+    const seen = await withSwappedFiles(dir, swap, async () => readFileSync(file, "utf8"));
+    expect(seen.value).toBe("original");
+    expect(existsSync(file)).toBe(false);
   });
 });

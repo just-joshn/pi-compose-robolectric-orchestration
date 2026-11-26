@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { isArrayOf, isRecord, isString } from "./guards.ts";
 import { sha256 } from "./tree.ts";
@@ -96,8 +96,10 @@ function claim(path: string, journal: Journal) {
 const current = (path: string) => (existsSync(path) ? readFileSync(path) : null);
 
 function put(path: string, content: Buffer | null) {
-  if (content) writeFileSync(path, content);
-  else rmSync(path, { force: true });
+  if (content) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+  } else rmSync(path, { force: true });
 }
 
 /**

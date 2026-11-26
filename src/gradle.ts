@@ -179,7 +179,7 @@ interface Invocation {
 function invocation(group: readonly Resolved[], gradle: string, task: string): Invocation {
   const root = group[0]?.root ?? "";
   // Gradle maps the module directory to its project, which may sit at a different path.
-  const project = relative(root, group[0]?.module ?? root) || ".";
+  const moduleDir = relative(root, group[0]?.module ?? root) || ".";
   for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
   // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
@@ -190,7 +190,7 @@ function invocation(group: readonly Resolved[], gradle: string, task: string): I
   return {
     root,
     gradle: existsSync(wrapper) ? wrapper : gradle,
-    args: ["--console=plain", "-p", project, task, "--rerun", ...tests],
+    args: ["--console=plain", "-p", moduleDir, task, "--rerun", ...tests],
   };
 }
 
