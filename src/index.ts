@@ -61,7 +61,6 @@ function registerRestore(pi: ExtensionAPI, session: Session) {
   pi.on("session_tree", restore);
 }
 
-/** `status` and `cancel`, or undefined when the arguments start a new run. */
 function control(session: Session, first: string): string | undefined {
   const run = session.run;
   if (!first || first === "status")
@@ -123,10 +122,6 @@ function registerToolGates(pi: ExtensionAPI, session: Session) {
   });
 }
 
-/**
- * Decide what happens when the agent stops: re-check VERIFIED, post a terminal status once, end a
- * run that keeps stopping without progress, or return the continuation message.
- */
 function settle(session: Session, cwd: string): { status: string } | { gate: string } | undefined {
   let run = session.run;
   if (!run) return undefined;

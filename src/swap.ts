@@ -97,7 +97,6 @@ export async function withSwappedFiles<T>(
   return { value, conflicts };
 }
 
-/** Repair swaps left behind by a crash. Idempotent. */
 export function recoverSwap(dir: string): { restored: string[]; conflicts: string[] } {
   const path = join(dir, PENDING);
   if (!existsSync(path)) return { restored: [], conflicts: [] };

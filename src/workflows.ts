@@ -20,10 +20,7 @@ export function categorize(path: string): Category {
 
 export const isSource = (path: string) => /\.(kt|java)$/.test(path);
 
-/**
- * The model completes "edit" and "findings" phases. The extension executes every other kind and
- * decides its outcome.
- */
+/** The model completes "edit" and "findings" phases with compose_test_step and "mutation" with compose_test_mutate. The extension executes every other kind and decides its outcome. */
 export type PhaseKind =
   "edit" | "findings" | "verify" | "reproduce" | "mutation" | "regression" | "stress" | "measure";
 
@@ -228,7 +225,6 @@ export const skillDir = join(
   "compose-robolectric",
 );
 
-/** The SKILL.md body up to its reference list. */
 export function methodology(): string {
   const body = readFileSync(join(skillDir, "SKILL.md"), "utf8").replace(/^---[\s\S]*?---\n/, "");
   return body.slice(0, body.indexOf("## References")).trim();

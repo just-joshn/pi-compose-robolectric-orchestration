@@ -154,7 +154,6 @@ function completeFindings(run: Run, deps: Deps): Run {
   return advance(revise(run, { findings: [...run.findings, ...lint] }));
 }
 
-/** Run the targets `times` times in a row, stopping early when the build breaks. */
 async function repeat(
   run: Run,
   purpose: Purpose,
@@ -211,7 +210,6 @@ const RUNNERS: Partial<Record<PhaseKind, Runner>> = {
   regression: regressionCheck,
 };
 
-/** Run one extension-owned phase after checking that nothing out of scope changed. */
 async function runPhase(run: Run, phase: Phase, runner: Runner, deps: Deps): Promise<StepResult> {
   const violations = scopeViolations(run, deps.cwd);
   if (violations.length === 0) return runner(run, deps, phase);
@@ -266,7 +264,6 @@ async function runOwned(run: Run, deps: Deps, messages: readonly string[]): Prom
   return result(done, ...messages, nextStep(done));
 }
 
-/** Complete the current phase, then run extension-owned phases until the model is needed again. */
 export async function step(run: Run, deps: Deps): Promise<StepResult> {
   const phase = currentPhase(run) ?? reject(`No active phase. ${nextStep(run)}`);
   if (phase.kind === "mutation") reject("This phase is completed with compose_test_mutate.");
@@ -305,7 +302,6 @@ export interface MutationInput {
   readonly replace: string;
 }
 
-/** Negative control: break the code under test, require a test failure, restore the file. */
 export async function mutate(run: Run, input: MutationInput, deps: Deps): Promise<StepResult> {
   const kind = currentPhase(run)?.kind;
   if (kind !== "mutation" && kind !== "regression")

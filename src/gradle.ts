@@ -41,7 +41,6 @@ export type Exec = (
   options: { cwd: string; timeoutMs: number; signal?: AbortSignal },
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-/** Overrides come from the environment; the project's gradlew always wins over COMPOSE_TEST_GRADLE. */
 export function gradleConfig(env = process.env) {
   const timeout = Number(env["COMPOSE_TEST_TIMEOUT"] ?? 1200);
   if (!Number.isFinite(timeout) || timeout <= 0)
@@ -119,7 +118,6 @@ export const parseJUnitXml = (xml: string): TestCase[] =>
     ([, tag = "", body = ""]) => parseCase(tag, body),
   );
 
-/** JUnit XML for the class and its nested classes. */
 function reports(target: Resolved, task: string): string[] {
   const dir = join(target.module, "build", "test-results", task);
   if (!existsSync(dir)) return [];
@@ -151,10 +149,10 @@ interface Invocation {
   readonly args: readonly string[];
 }
 
-/** One Gradle invocation for the targets of one module, after deleting their old reports. */
 function invocation(group: readonly Resolved[], gradle: string, task: string): Invocation {
   const root = group[0]?.root ?? "";
   for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
+  // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   const tests = group.flatMap((t) => [
     "--tests",

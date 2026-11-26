@@ -41,7 +41,6 @@ type Command = {
   getArgumentCompletions: (p: string) => unknown;
 };
 
-/** A minimal stand-in for Pi's ExtensionAPI that records what the extension registers and sends. */
 function fakePi(root: string, exec: Exec) {
   const recorded = {
     handlers: new Map<string, Handler[]>(),
@@ -89,7 +88,6 @@ function toOutcome(value: unknown): Outcome {
   };
 }
 
-/** The fake provides every ExtensionAPI member the extension calls. */
 const isExtensionApi = (value: object): value is ExtensionAPI =>
   ["on", "registerTool", "registerCommand", "appendEntry", "sendUserMessage", "exec"].every(
     (name) => name in value,

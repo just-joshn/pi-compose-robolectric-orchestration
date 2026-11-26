@@ -122,7 +122,7 @@ const isTarget = (v: unknown): v is Target =>
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
 const isNullable = (v: unknown, guard: (x: unknown) => boolean) => v === null || guard(v);
 
-/** The phase index must point at a phase (or one past the last for a finished run). */
+/** An active run's phase index must point at a phase; a finished run may sit one past the last. */
 function reachable(workflow: WorkflowId | null, status: Status, phase: number): boolean {
   const phases = workflow === null ? 0 : workflows[workflow].phases.length;
   if (status === "active" && workflow === null) return false;
@@ -132,7 +132,7 @@ function reachable(workflow: WorkflowId | null, status: Status, phase: number): 
 const isStatus = (v: unknown): v is Status => STATUSES.some((s) => s === v);
 const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
 
-/** A persisted run with the current shape and a reachable phase. */
+/** A persisted run whose top-level fields have the current types and whose phase is reachable. */
 export function isRun(v: unknown): v is Run {
   if (!isRecord(v) || v["version"] !== 2) return false;
   const { workflow, status, phaseIndex } = v;
@@ -175,7 +175,6 @@ const runLine = (r: TestRun) => {
   return `- run #${r.id} ${r.phase}/${r.purpose}: ${r.outcome} (exit ${r.exitCode}, ${r.cases.length} cases, ${failed.length} failed, ${r.seconds}s)${first}`;
 };
 
-/** The authoritative status, built only from recorded evidence. */
 export function report(run: Run): string {
   return [
     `compose-test status: ${run.status.toUpperCase()}`,
@@ -211,7 +210,6 @@ export function report(run: Run): string {
 
 const MAX_BACKTRACKS = 3;
 
-/** Send the run back to its last edit phase with the reason, or end it once retries are spent. */
 export function backtrack(run: Run, reason: string): Run {
   const phases = run.workflow ? workflows[run.workflow].phases : [];
   const edit = phases.slice(0, run.phaseIndex).findLastIndex((p) => p.kind === "edit");

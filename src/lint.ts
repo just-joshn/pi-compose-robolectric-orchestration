@@ -89,7 +89,6 @@ function offsets(text: string, chars: string): number[] {
   return found;
 }
 
-/** How many sorted offsets lie before `index` (binary search). */
 function countBefore(sorted: readonly number[], index: number): number {
   let low = 0;
   let high = sorted.length;
@@ -153,7 +152,6 @@ const BODY_START = /[{=\n]/g;
 const ANNOTATIONS =
   /((?:@[\w.]+(?:\([^)]*\))?\s*)*)(?:(?:public|private|internal|override|suspend|open)\s+)*$/;
 
-/** Index just past the `)` that closes the parameter list opened before `from`. */
 function closeParen(code: string, from: number): number {
   let i = from;
   for (let depth = 1; i < code.length && depth > 0; i++) {
@@ -190,7 +188,6 @@ function functions(code: string): KotlinFunction[] {
 export const testFunctions = (source: string) =>
   functions(stripCode(source)).filter((f) => f.isTest);
 
-/** Helpers in the same file that assert, directly or through another helper. */
 function assertingHelpers(all: readonly KotlinFunction[]): Set<string> {
   const helpers = new Set<string>();
   for (let changed = true; changed;) {

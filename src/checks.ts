@@ -21,7 +21,7 @@ export function scopeViolations(run: Run, cwd: string): string[] {
   return changes(run, cwd).filter((path) => !allowed.has(categorize(path)));
 }
 
-/** Save files that were already uncommitted at start; clean files are read back from git. */
+/** Save the test and production files that were already uncommitted at start; clean files are read back from git. */
 export function saveSnapshot(cwd: string, baseline: Fingerprint, dir: string): string {
   const files: Record<string, string> = {};
   for (const path of Object.keys(baseline.files)) {
@@ -78,7 +78,6 @@ export function weakenedTests(run: Run, cwd: string, changed: readonly string[])
   return weakened;
 }
 
-/** Why an edit phase cannot complete yet, checked in the order the agent should fix them. */
 export function editProblem(run: Run, cwd: string): string | undefined {
   const missing = run.targets.filter((t) => !existsSync(join(cwd, t.file)));
   if (missing.length) return `Targets do not exist yet: ${missing.map((t) => t.file).join(", ")}.`;
@@ -152,7 +151,7 @@ function problems(run: Run, cwd: string): string[] {
   return found;
 }
 
-/** Decide the final status. A failed check sends the run back to edit instead of ending it. */
+/** Decide the final status. A failed check sends the run back to its edit phase while retries remain. */
 export function finalize(run: Run, cwd: string): Run {
   const found = problems(run, cwd);
   if (found.length === 0) return finish(run, "verified", "All checks passed.");
@@ -160,7 +159,6 @@ export function finalize(run: Run, cwd: string): Run {
   return back.status === "active" ? back : finish(run, "incomplete", found.join(" "));
 }
 
-/** Re-check a VERIFIED run before its status is posted; later changes reopen it. */
 export function recheck(run: Run, cwd: string): Run {
   if (run.status !== "verified") return run;
   const found = problems(run, cwd);

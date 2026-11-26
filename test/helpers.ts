@@ -40,7 +40,6 @@ export function git(root: string, ...args: string[]) {
   execFileSync("git", args, { cwd: root, stdio: "ignore" });
 }
 
-/** A tiny Gradle-shaped workspace under git: one module, one test, one production file. */
 export function workspace(options: { git?: boolean; test?: string | null } = {}) {
   const root = mkdtempSync(join(tmpdir(), "compose-test-"));
   write(root, "settings.gradle.kts", 'include(":app")\n');
@@ -90,7 +89,6 @@ export function fakeGradle(
   return { exec, calls };
 }
 
-/** Production code containing "BROKEN" fails the tests; everything else passes. */
 export const behavior = (main: string) => (main.includes("BROKEN") ? "fail" : "pass");
 
 export function deps(root: string, exec: Exec): Deps {

@@ -5,10 +5,7 @@ import { join, relative } from "node:path";
 
 import { categorize } from "./workflows.ts";
 
-/**
- * The working tree: the HEAD commit plus a content hash for every path that differs from it
- * (every file, without git). Equal fingerprints mean identical trees.
- */
+/** The working tree as HEAD plus a truncated content hash for every path that differs from it: dirty and untracked files, files git hides that sit in source sets or build files, and every file when there is no git. Build output directories are never included. */
 export interface Fingerprint {
   readonly head: string | null;
   readonly files: Readonly<Record<string, string>>;
@@ -18,7 +15,6 @@ const OUTPUT_DIR = /(^|\/)(build|\.gradle|\.kotlin|\.idea|node_modules|\.cxx|\.g
 export const sha256 = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
 const sha = (data: Buffer | string) => sha256(data).slice(0, 16);
 
-/** Hash a file, or a symlink's target path without following it. */
 function hashFile(path: string): string {
   const stat = lstatSync(path, { throwIfNoEntry: false });
   if (stat?.isSymbolicLink()) return `link:${sha(readlinkSync(path))}`;
@@ -38,7 +34,6 @@ function walk(root: string, dir: string): string[] {
   });
 }
 
-/** Paths from `git status -z`, made relative to cwd; renames list both sides. */
 function dirtyPaths(cwd: string, top: string, status: string): string[] {
   const base = realpathSync(cwd);
   const tokens = status.split("\0").filter(Boolean);
