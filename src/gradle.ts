@@ -92,13 +92,14 @@ function supertypes(header: string): string[] {
   let angles = 0;
   let start = -1;
   const names: string[] = [];
+  const name = (part: string) => /^\s*([\w.]+)/.exec(part)?.[1]?.split(".").at(-1) ?? "";
   for (let i = 0; i < header.length; i++) {
     const ch = header[i];
     if (parens === 0 && angles === 0) {
       if (ch === "{" || /^where\b/.test(header.slice(i))) break;
       if (ch === ":" && start < 0) start = i + 1;
       else if (ch === "," && start >= 0) {
-        names.push(/^\s*(\w+)/.exec(header.slice(start, i))?.[1] ?? "");
+        names.push(name(header.slice(start, i)));
         start = i + 1;
       }
     }
@@ -107,7 +108,7 @@ function supertypes(header: string): string[] {
     if (ch === "<") angles++;
     if (ch === ">" && header[i - 1] !== "-") angles--;
   }
-  if (start >= 0) names.push(/^\s*(\w+)/.exec(header.slice(start))?.[1] ?? "");
+  if (start >= 0) names.push(name(header.slice(start)));
   return names;
 }
 

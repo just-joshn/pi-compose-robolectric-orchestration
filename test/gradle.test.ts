@@ -452,6 +452,56 @@ class OtherTest : Marker<BaseTest, String> {
   });
 });
 
+describe("qualified inherited test selection", () => {
+  it("includes a concrete test class with a fully qualified superclass", () => {
+    const source = `package a
+abstract class Base {
+  @Test fun inherited() { assert(true) }
+}
+class InheritedTest : a.Base()
+class OtherTest {
+  @Test fun other() { assert(true) }
+}`;
+    expect(testClasses(source, "app/src/test/java/a/Tests.kt")).toEqual([
+      { name: "a.InheritedTest", tests: ["inherited"] },
+      { name: "a.OtherTest", tests: ["other"] },
+    ]);
+  });
+
+  it("runs a failing inherited test with a package-qualified superclass", async () => {
+    const root = workspace({
+      test: `package a
+import org.junit.Test
+abstract class Base {
+  @Test fun inherited() { assert(false) }
+}
+class Leaf : a.Base()
+class Other {
+  @Test fun passes() { assert(true) }
+}
+`,
+    });
+    const exec: Exec = async (_command, args) => {
+      const filters = new Set(args.filter((_, i) => args[i - 1] === "--tests"));
+      write(
+        root,
+        "app/build/test-results/testDebugUnitTest/TEST-a.Other.xml",
+        '<testcase classname="a.Other" name="passes"/>',
+      );
+      if (filters.has("a.Leaf")) {
+        write(
+          root,
+          "app/build/test-results/testDebugUnitTest/TEST-a.Leaf.xml",
+          '<testcase classname="a.Leaf" name="inherited"><failure/></testcase>',
+        );
+      }
+      recordTask(root, args);
+      return { code: filters.has("a.Leaf") ? 1 : 0, stdout: "", stderr: "" };
+    };
+    expect((await runTargets(deps(root, exec), [{ file: TEST_FILE }])).outcome).toBe("failed");
+  });
+});
+
 describe("transitive inherited test target selection", () => {
   it("runs a concrete descendant through an abstract intermediate class", async () => {
     const root = workspace({
