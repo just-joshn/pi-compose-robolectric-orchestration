@@ -2,7 +2,11 @@ import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
 
 import { isRecord, isString } from "./guards.ts";
 
-const groovyString = (text: string) => `'${text.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
+/**
+ * Names each Gradle invocation's own record file. The script reads it only while tests run, which
+ * Gradle's configuration cache does not track, so the cache stays valid from run to run.
+ */
+export const RECORD_PROPERTY = "composeTest.record";
 
 /**
  * `-p <module>` also runs the task in child projects, whose tests never match the filters. Each
@@ -11,7 +15,7 @@ const groovyString = (text: string) => `'${text.replaceAll("\\", "\\\\").replace
  * replaces them only after the tests, so a run killed in between, or one with XML reports turned
  * off, would leave them.
  */
-export const initScript = (record: string) => `allprojects {
+export const INIT_SCRIPT = `allprojects {
   tasks.withType(Test).configureEach { task ->
     filter.failOnNoMatchingTests = false
     def facts = [task: task.name, project: task.project.projectDir.path]
@@ -20,7 +24,7 @@ export const initScript = (record: string) => `allprojects {
       if (suite.parent == null) xml.get().asFile.listFiles()?.findAll { it.name.startsWith('TEST-') }*.delete()
     }
     afterSuite { suite, result ->
-      if (suite.parent == null) new File(${groovyString(record)}) << groovy.json.JsonOutput.toJson(facts + [xml: xml.get().asFile.path, ms: result.endTime - result.startTime]) + '\\n'
+      if (suite.parent == null) new File(System.getProperty('${RECORD_PROPERTY}')) << groovy.json.JsonOutput.toJson(facts + [xml: xml.get().asFile.path, ms: result.endTime - result.startTime]) + '\\n'
     }
   }
 }

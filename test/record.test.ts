@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { type Exec, runTargets } from "../src/gradle.ts";
 import {
   deps,
+  fakeGradle,
   recordFile,
   recordTask,
   RESULT_XML,
@@ -46,6 +47,31 @@ describe("the Test task record the init script keeps", () => {
     };
     expect((await runTargets(deps(root, exec), targets)).testSeconds).toBe(1.5);
   });
+
+  it.each(["before Gradle starts", "after Gradle records its task"] as const)(
+    "survives another run in the process that finishes %s",
+    async (when) => {
+      const root = workspace();
+      const gradle = fakeGradle(root, () => "pass").exec;
+      const [paused, gate] = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+      const hold = async () => {
+        paused.resolve();
+        await gate.promise;
+      };
+      const slow: Exec = async (c, a, o) => {
+        if (when === "before Gradle starts") await hold();
+        const ran = await gradle(c, a, o);
+        if (when === "after Gradle records its task") await hold();
+        return ran;
+      };
+      const d = deps(root, gradle);
+      const first = runTargets({ ...d, exec: slow }, targets);
+      await paused.promise;
+      expect((await runTargets(d, targets)).outcome).toBe("passed");
+      gate.resolve();
+      expect((await first).outcome).toBe("passed");
+    },
+  );
 
   it("reads no earlier report when the module's Test task did not run", async () => {
     const root = workspace();

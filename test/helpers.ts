@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -12,8 +19,8 @@ export const MAIN_FILE = "app/src/main/java/a/Foo.kt";
 export const RESULT_XML = "app/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml";
 /** The file the init script's test listener records each Test task that ran to. */
 export function recordFile(args: readonly string[]): string {
-  const script = readFileSync(args[args.indexOf("--init-script") + 1] ?? "", "utf8");
-  return /new File\('([^']+)'\)/.exec(script)?.[1] ?? "";
+  const property = "-DcomposeTest.record=";
+  return args.find((a) => a.startsWith(property))?.slice(property.length) ?? "";
 }
 
 interface TaskRun {
@@ -102,6 +109,13 @@ export function fakeGradle(
   const calls: string[][] = [];
   const exec: Exec = async (_command, args) => {
     calls.push([...args]);
+    const script = args[args.indexOf("--init-script") + 1] ?? "";
+    if (!existsSync(script))
+      return {
+        code: 1,
+        stdout: "",
+        stderr: `The specified initialization script '${script}' does not exist.`,
+      };
     const verdict = decide(read(root, MAIN_FILE), read(root, TEST_FILE), calls.length);
     if (verdict === "build-error")
       return { code: 1, stdout: "", stderr: "e: Unresolved reference\nBUILD FAILED" };

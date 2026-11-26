@@ -82,6 +82,7 @@ describe("running Gradle per module", () => {
       "a.FooTest$*.showsGreeting[*",
       "--init-script",
       expect.stringMatching(/\.gradle$/),
+      expect.stringMatching(/^-DcomposeTest\.record=.+\.record$/),
     ]);
     expect(gradle.calls[1]?.slice(1, 4)).toEqual(["-p", "lib", "testDebugUnitTest"]);
     expect(result.outcome).toBe("no-tests");

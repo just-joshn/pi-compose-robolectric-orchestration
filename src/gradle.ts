@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 
 import { ANNOTATION, annotation, blockEnd, stripCode, testFunctions } from "./lint.ts";
 import { inside } from "./paths.ts";
-import { initScript, takeOwnTask } from "./record.ts";
+import { INIT_SCRIPT, RECORD_PROPERTY, takeOwnTask } from "./record.ts";
 import { atomicWrite } from "./swap.ts";
 
 export interface Target {
@@ -201,16 +201,17 @@ function outcomeOf(exitCode: number, perTarget: readonly (readonly TestCase[])[]
 interface Invocation {
   readonly root: string;
   readonly module: string;
+  readonly record: string;
   readonly gradle: string;
   readonly args: readonly string[];
   readonly targets: readonly Resolved[];
 }
 
 /**
- * Random per process: a build script cannot predict the record file, and the init script's content,
- * which keys Gradle's configuration cache, stays the same from run to run.
+ * One per process and never deleted, since a run in flight may still hand it to Gradle. Its content
+ * never changes, so writing it again keeps Gradle's configuration cache.
  */
-const PRIVATE = { script: `${randomUUID()}.init.gradle`, record: `${randomUUID()}.record` };
+const SCRIPT = `${randomUUID()}.init.gradle`;
 
 const total = (parts: readonly (number | null)[]) =>
   parts.reduce<number | null>(
@@ -221,7 +222,7 @@ const total = (parts: readonly (number | null)[]) =>
 function invocation(
   group: readonly Resolved[],
   { gradle, task }: { gradle: string; task: string },
-  script: string,
+  { script, dir }: { script: string; dir: string },
 ): Invocation {
   const root = group[0]?.root ?? "";
   // Gradle maps the module directory to its project, which may sit at a different path.
@@ -236,11 +237,23 @@ function invocation(
       .flatMap((c) => (method ? [`${c}.${method}`, `${c}.${method}[*`] : [c]))
       .flatMap((filter) => ["--tests", filter]),
   );
+  const record = join(dir, `${randomUUID()}.record`);
   return {
     root,
     module,
+    record,
     gradle: existsSync(wrapper) ? wrapper : gradle,
-    args: ["--console=plain", "-p", moduleDir, task, "--rerun", ...tests, "--init-script", script],
+    args: [
+      "--console=plain",
+      "-p",
+      moduleDir,
+      task,
+      "--rerun",
+      ...tests,
+      "--init-script",
+      script,
+      `-D${RECORD_PROPERTY}=${record}`,
+    ],
     targets: group,
   };
 }
@@ -252,7 +265,6 @@ type Ran = Awaited<ReturnType<Exec>> & {
 
 interface RunOptions {
   readonly task: string;
-  readonly record: string;
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
 }
@@ -265,7 +277,7 @@ interface RunOptions {
 async function inOrder(
   exec: Exec,
   invocations: readonly Invocation[],
-  { task, record, ...options }: RunOptions,
+  { task, ...options }: RunOptions,
 ): Promise<Ran[]> {
   if (options.signal?.aborted)
     throw new Error("Gradle run cancelled; it is not recorded as evidence.", {
@@ -273,12 +285,11 @@ async function inOrder(
     });
   const [first, ...rest] = invocations;
   if (!first) return [];
-  rmSync(record, { force: true });
   const result = await exec(first.gradle, first.args, { ...options, cwd: first.root });
-  const own = takeOwnTask(record, task, first.module);
+  const own = takeOwnTask(first.record, task, first.module);
   const perTarget = first.targets.map((t) => (own ? casesFor(t, own.xml) : []));
   const ran = { ...result, testSeconds: own ? own.ms / 1000 : null, perTarget };
-  return [ran, ...(await inOrder(exec, rest, { task, record, ...options }))];
+  return [ran, ...(await inOrder(exec, rest, { task, ...options }))];
 }
 
 /**
@@ -291,23 +302,22 @@ export async function runTargets(
 ): Promise<Execution> {
   const config = gradleConfig();
   const resolved = targets.flatMap((t) => resolve(cwd, t));
-  const [script, record] = [join(dir, PRIVATE.script), join(dir, PRIVATE.record)];
-  atomicWrite(script, initScript(record));
+  const script = join(dir, SCRIPT);
+  atomicWrite(script, INIT_SCRIPT);
   const started = Date.now();
   const keys = [...new Set(resolved.map((t) => `${t.root}\0${t.module}`))];
   const invocations = keys.map((key) =>
     invocation(
       resolved.filter((t) => `${t.root}\0${t.module}` === key),
       config,
-      script,
+      { script, dir },
     ),
   );
   const results = await inOrder(exec, invocations, {
     task: config.task,
-    record,
     timeoutMs: config.timeoutMs,
     ...(signal ? { signal } : {}),
-  }).finally(() => rmSync(script, { force: true }));
+  });
   const exitCode = results.reduce((code, r) => (r.code === 0 ? code : r.code), 0);
   const output = results.map((r) => `${r.stdout}\n${r.stderr}`).join("\n");
   const commands = invocations.map((i) => `${i.gradle} ${i.args.join(" ")}`);
