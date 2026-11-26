@@ -228,8 +228,17 @@ function functions(code: string): KotlinFunction[] {
   const test = annotation(code, "Test");
   for (const match of code.matchAll(/\bfun\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?(`[^`]+`|\w+)\s*\(/g)) {
     const at = match.index ?? 0;
-    BODY_START.lastIndex = closeParen(code, at + match[0].length);
-    const start = BODY_START.exec(code)?.index ?? -1;
+    const afterParams = closeParen(code, at + match[0].length);
+    const returnTypeStart = /^\s*:\s*/.exec(code.slice(afterParams));
+    const typeStart = afterParams + (returnTypeStart?.[0].length ?? 0);
+    BODY_START.lastIndex = typeStart;
+    let start = BODY_START.exec(code)?.index ?? -1;
+    while (start >= 0 && code[start] === "\n") {
+      if (!returnTypeStart) break;
+      const type = code.slice(typeStart, start);
+      if (type.split("<").length <= type.split(">").length) break;
+      start = BODY_START.exec(code)?.index ?? -1;
+    }
     if (start < 0 || code[start] === "\n") continue;
     const end = code[start] === "{" ? blockEnd(code, start) : expressionEnd(code, start + 1);
     const boundary = boundaries[countBefore(boundaries, at) - 1] ?? -1;

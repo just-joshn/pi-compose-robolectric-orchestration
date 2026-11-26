@@ -24,6 +24,28 @@ import {
   write,
 } from "./helpers.ts";
 
+it("rejects removing an existing test with a multiline return type", () => {
+  const multilineReturn = `package a
+class FooTest {
+  @Test fun existing():
+    Unit { assertEquals(1, 1) }
+  @Test fun kept() { assertEquals(1, 1) }
+}
+`;
+  const root = workspace({ test: multilineReturn });
+  const run = start(
+    newRun("goal", null),
+    { workflow: "write-test", targets: [{ file: TEST_FILE }] },
+    root,
+  ).run;
+  write(
+    root,
+    TEST_FILE,
+    multilineReturn.replace("  @Test fun existing():\n    Unit { assertEquals(1, 1) }\n", ""),
+  );
+  expect(editProblem(run, root)).toMatch(/lost tests: existing/);
+});
+
 const aCase = {
   className: "a.OtherTest",
   name: "showsGreeting",

@@ -14,6 +14,15 @@ describe("Kotlin functions whose body starts on the next line", () => {
   });
 });
 
+it("inventories multiline generic return types", () => {
+  const source = `class T {
+  @Test fun test(): List<
+    String
+  > = listOf("x")
+}`;
+  expect(testFunctions(source).map((t) => t.name)).toEqual(["test"]);
+});
+
 describe("Kotlin the scanner must read like the compiler", () => {
   it("treats aliased JUnit annotations as the real ones", () => {
     const source =
