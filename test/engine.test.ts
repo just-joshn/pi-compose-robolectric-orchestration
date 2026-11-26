@@ -51,7 +51,7 @@ function begin(
   return { run, d, gradle };
 }
 
-describe("write-test", () => {
+describe("write-test verification and scope", () => {
   it("verifies only after a passing run and a detected, restored mutation", async () => {
     const root = workspace({ test: null });
     const { run, d } = begin(root);
@@ -82,7 +82,9 @@ describe("write-test", () => {
     write(root, "app/src/main/java/a/Injected.kt", "package a\n");
     await expect(step(run, d)).rejects.toThrow(/Injected\.kt/);
   });
+});
 
+describe("write-test negative control", () => {
   it("returns to editing when tests miss the mutation, and keeps the phase when it does not compile", async () => {
     const root = workspace();
     const missed = begin(root, {}, () => "pass");
@@ -103,7 +105,9 @@ describe("write-test", () => {
     );
     await expect(mutate(missed.run, BREAK, missed.d)).rejects.toThrow(/Not in a negative-control/);
   });
+});
 
+describe("write-test retries and file safety", () => {
   it("gives up after three failed verifications", async () => {
     const root = workspace();
     let { run } = begin(root);
@@ -146,16 +150,15 @@ describe("write-test", () => {
   });
 });
 
-describe("start", () => {
-  const root = workspace();
-  const s = (input: Partial<StartInput>, forced: "fix-failing" | null = null) =>
-    start(
-      newRun("goal", forced),
-      { workflow: "write-test", targets: [{ file: TEST_FILE }], ...input } as StartInput,
-      root,
-    );
-
+describe("starting a workflow", () => {
   it("rejects targets and inputs the workflow cannot use", () => {
+    const root = workspace();
+    const s = (input: Partial<StartInput>, forced: "fix-failing" | null = null) =>
+      start(
+        newRun("goal", forced),
+        { workflow: "write-test", targets: [{ file: TEST_FILE }], ...input },
+        root,
+      );
     expect(() => s({ targets: [] })).toThrow(/at least one/);
     expect(() => s({ targets: [{ file: MAIN_FILE }] })).toThrow(/under src\/test/);
     expect(() => s({ targets: [{ file: "../x/src/test/A.kt" }] })).toThrow(/relative/);
@@ -184,7 +187,7 @@ async function atFix(
   return { run: (await step(run, d)).run, d, gradle };
 }
 
-describe("fix-failing", () => {
+describe("fix-failing proves the fix", () => {
   it("reproduces one method, verifies the whole class, and proves the fix on the original code", async () => {
     const root = workspace({ test: twoTests("sibling") });
     const { run, d, gradle } = await atFix(root, behavior, "showsGreeting");
@@ -195,28 +198,6 @@ describe("fix-failing", () => {
     expect(gradle.calls[1]).toContain("a.FooTest");
     expect(done.run.status).toBe("verified");
     expect(read(root, MAIN_FILE)).toContain('"Hello"');
-  });
-
-  it("rejects deleted, lost or ignored tests", async () => {
-    const root = workspace({ test: twoTests("other") });
-    write(
-      root,
-      "app/src/test/java/a/OtherTest.kt",
-      passingTest.replace("class FooTest", "class OtherTest"),
-    );
-    git(root, "add", "-A");
-    const { run, d } = await atFix(root);
-    write(
-      root,
-      TEST_FILE,
-      twoTests("other").replace("  @Test\n  fun other", "  @Ignore\n  @Test\n  fun other"),
-    );
-    await expect(step(run, d)).rejects.toThrow(/gained @Ignore/);
-    write(root, TEST_FILE, passingTest);
-    await expect(step(run, d)).rejects.toThrow(/lost tests: other/);
-    write(root, TEST_FILE, twoTests("other"));
-    rmSync(join(root, "app/src/test/java/a/OtherTest.kt"));
-    await expect(step(run, d)).rejects.toThrow(/OtherTest.kt was deleted/);
   });
 
   it("never verifies a weakened assertion while the bug remains", async () => {
@@ -234,7 +215,9 @@ describe("fix-failing", () => {
     const back = await mutate(result.run, { file: MAIN_FILE, find: '"BROKEN"', replace: '"X"' }, d);
     expect(back.run.status).not.toBe("verified");
   });
+});
 
+describe("fix-failing regression check", () => {
   it("sends a fix back when the tests also pass on the original code, and accepts a mutation when they do not compile there", async () => {
     const root = workspace();
     const { run, d } = await atFix(root, (main, _t, call) =>
@@ -260,6 +243,30 @@ describe("fix-failing", () => {
         .status,
     ).toBe("verified");
   });
+});
+
+describe("fix-failing protects existing tests", () => {
+  it("rejects deleted, lost or ignored tests", async () => {
+    const root = workspace({ test: twoTests("other") });
+    write(
+      root,
+      "app/src/test/java/a/OtherTest.kt",
+      passingTest.replace("class FooTest", "class OtherTest"),
+    );
+    git(root, "add", "-A");
+    const { run, d } = await atFix(root);
+    write(
+      root,
+      TEST_FILE,
+      twoTests("other").replace("  @Test\n  fun other", "  @Ignore\n  @Test\n  fun other"),
+    );
+    await expect(step(run, d)).rejects.toThrow(/gained @Ignore/);
+    write(root, TEST_FILE, passingTest);
+    await expect(step(run, d)).rejects.toThrow(/lost tests: other/);
+    write(root, TEST_FILE, twoTests("other"));
+    rmSync(join(root, "app/src/test/java/a/OtherTest.kt"));
+    await expect(step(run, d)).rejects.toThrow(/OtherTest.kt was deleted/);
+  });
 
   it("uses the uncommitted start content of a file for the regression check", async () => {
     const root = workspace();
@@ -279,7 +286,7 @@ describe("fix-failing", () => {
   });
 });
 
-describe("other workflows", () => {
+describe("flaky, refactor and performance workflows", () => {
   it("fix-flaky requires five passing stress runs and a negative control", async () => {
     const root = workspace();
     let flaky = true;
@@ -315,7 +322,9 @@ describe("other workflows", () => {
     const failing = begin(workspace(), { workflow: "performance" }, () => "fail");
     expect((await step(failing.run, failing.d)).run.status).toBe("blocked");
   });
+});
 
+describe("review workflow", () => {
   it("review requires reading every target, stays read-only, and adds lint findings", async () => {
     const root = workspace({
       test: passingTest.replace("assertIsDisplayed()", "toString()\n    Thread.sleep(10)"),
@@ -351,7 +360,9 @@ describe("other workflows", () => {
       expect.arrayContaining(["custom", "thread-sleep", "no-assertion"]),
     );
   });
+});
 
+describe("migrate and blocking", () => {
   it("migrate needs every source case and may delete the source", async () => {
     const root = workspace({ test: null });
     const source = "app/src/androidTest/java/a/FooDeviceTest.kt";

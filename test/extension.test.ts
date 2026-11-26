@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Exec } from "../src/gradle.ts";
 import composeTest from "../src/index.ts";
@@ -34,27 +34,29 @@ interface Tool {
   ) => Promise<ToolResult>;
 }
 
-/** A minimal stand-in for Pi's ExtensionAPI that records what the extension does. */
-function harness(root: string, exec: Exec = fakeGradle(root, behavior).exec) {
-  const handlers = new Map<string, Handler[]>();
-  const tools = new Map<string, Tool>();
-  let command:
-    | {
-        handler: (args: string, ctx: unknown) => Promise<void>;
-        getArgumentCompletions: (p: string) => unknown;
-      }
-    | undefined;
-  const entries: { type: string; customType: string; data: unknown }[] = [];
-  const sent: string[] = [];
-  const notes: string[] = [];
+type Command = {
+  handler: (args: string, ctx: unknown) => Promise<void>;
+  getArgumentCompletions: (p: string) => unknown;
+};
+
+/** A minimal stand-in for Pi's ExtensionAPI that records what the extension registers and sends. */
+function fakePi(root: string, exec: Exec) {
+  const recorded = {
+    handlers: new Map<string, Handler[]>(),
+    tools: new Map<string, Tool>(),
+    command: undefined as Command | undefined,
+    entries: [] as { type: string; customType: string; data: unknown }[],
+    sent: [] as string[],
+    notes: [] as string[],
+  };
   const pi = {
     on: (name: string, handler: Handler) =>
-      handlers.set(name, [...(handlers.get(name) ?? []), handler]),
-    registerTool: (tool: Tool & { name: string }) => tools.set(tool.name, tool),
-    registerCommand: (_name: string, c: typeof command) => (command = c),
+      recorded.handlers.set(name, [...(recorded.handlers.get(name) ?? []), handler]),
+    registerTool: (tool: Tool & { name: string }) => recorded.tools.set(tool.name, tool),
+    registerCommand: (_name: string, c: Command) => (recorded.command = c),
     appendEntry: (customType: string, data: unknown) =>
-      entries.push({ type: "custom", customType, data }),
-    sendUserMessage: (text: string) => sent.push(text),
+      recorded.entries.push({ type: "custom", customType, data }),
+    sendUserMessage: (text: string) => recorded.sent.push(text),
     exec: async (c: string, args: string[], o: { cwd: string; timeout: number }) => ({
       ...(await exec(c, args, { cwd: o.cwd, timeoutMs: o.timeout })),
       killed: false,
@@ -63,44 +65,45 @@ function harness(root: string, exec: Exec = fakeGradle(root, behavior).exec) {
   const ctx = {
     cwd: root,
     hasUI: true,
-    ui: { notify: (text: string) => notes.push(text) },
+    ui: { notify: (text: string) => recorded.notes.push(text) },
     waitForIdle: async () => undefined,
-    isIdle: () => sent.length === 0,
-    sessionManager: { getBranch: () => entries },
+    isIdle: () => recorded.sent.length === 0,
+    sessionManager: { getBranch: () => recorded.entries },
   };
+  return { pi, ctx, recorded };
+}
+
+type Outcome = { block?: boolean; continue?: boolean; entries?: { content: string }[] } | undefined;
+
+/** Load the extension into a fake Pi and expose the calls a test drives. */
+function harness(root: string, exec: Exec = fakeGradle(root, behavior).exec) {
+  const { pi, ctx, recorded } = fakePi(root, exec);
   composeTest(pi as never);
-  const emit = async (name: string, event: Record<string, unknown> = {}) => {
-    let result: unknown;
-    for (const handler of handlers.get(name) ?? [])
-      result = (await handler({ type: name, ...event }, ctx)) ?? result;
-    return result as
-      | { block?: boolean; reason?: string; continue?: boolean; entries?: { content: string }[] }
-      | undefined;
+  const emit = async (name: string, event: Record<string, unknown> = {}): Promise<Outcome> => {
+    let result: Outcome;
+    for (const handler of recorded.handlers.get(name) ?? [])
+      result = ((await handler({ type: name, ...event }, ctx)) as Outcome) ?? result;
+    return result;
   };
   const call = (name: string, params: unknown = {}) =>
-    tools.get(name)?.execute("id", params, undefined, undefined, ctx) ??
+    recorded.tools.get(name)?.execute("id", params, undefined, undefined, ctx) ??
     Promise.reject(new Error(name));
-  const run = (args: string) => command?.handler(args, ctx);
-  const settle = () => emit("agent_before_settle", { entries: [] });
+  const run = (args: string) => recorded.command?.handler(args, ctx);
   const status = async () => {
     await run("status");
-    return notes.at(-1) ?? "";
+    return recorded.notes.at(-1) ?? "";
   };
-  return {
-    emit,
-    call,
-    run,
-    settle,
-    status,
-    entries,
-    sent,
-    notes,
-    complete: (p: string) => command?.getArgumentCompletions(p),
-  };
+  const settle = () => emit("agent_before_settle", { entries: [] });
+  const complete = (p: string) => recorded.command?.getArgumentCompletions(p);
+  return { emit, call, run, settle, status, complete, ...recorded };
 }
 
 beforeEach(() => {
-  process.env["PI_COMPOSE_TEST_HOME"] = mkdtempSync(join(tmpdir(), "compose-test-home-"));
+  vi.stubEnv("PI_COMPOSE_TEST_HOME", mkdtempSync(join(tmpdir(), "compose-test-home-")));
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 async function verifiedWriteTest(h: ReturnType<typeof harness>, root: string) {
@@ -115,7 +118,7 @@ async function verifiedWriteTest(h: ReturnType<typeof harness>, root: string) {
   return h.call("compose_test_mutate", { file: MAIN_FILE, find: '"Hello"', replace: '"BROKEN"' });
 }
 
-describe("extension", () => {
+describe("a request from command to status", () => {
   it("drives a request from command to one authoritative VERIFIED status", async () => {
     const root = workspace({ test: null });
     const h = harness(root);
@@ -161,7 +164,9 @@ describe("extension", () => {
     expect(await h.settle()).toMatchObject({ continue: true });
     expect(await h.status()).toContain("status: ACTIVE");
   });
+});
 
+describe("an agent that stops or is cancelled", () => {
   it("ends a run that stops making progress, and does not count repeated findings as progress", async () => {
     const root = workspace();
     const h = harness(root);
@@ -176,6 +181,29 @@ describe("extension", () => {
     expect((await h.settle())?.entries?.[0]?.content).toContain("INCOMPLETE");
   });
 
+  it("keeps a cancel that happens while Gradle runs", async () => {
+    const root = workspace({ test: null });
+    const gradle = fakeGradle(root, behavior);
+    const started = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const h = harness(root, async (c, a, o) => {
+      started.resolve();
+      await gate.promise;
+      return gradle.exec(c, a, o);
+    });
+    await h.run("Add a test");
+    await h.call("compose_test_start", { workflow: "write-test", targets: [{ file: TEST_FILE }] });
+    write(root, TEST_FILE, passingTest);
+    const running = h.call("compose_test_step");
+    await started.promise;
+    await h.run("cancel");
+    gate.resolve();
+    expect((await running).content[0]?.text).toContain("Discarded");
+    expect(await h.status()).toContain("Cancelled by the operator");
+  });
+});
+
+describe("session lifecycle and commands", () => {
   it("restores state from the branch, posts an unposted terminal status once, and survives a corrupt swap record", async () => {
     const root = workspace();
     const h = harness(root);
@@ -196,26 +224,6 @@ describe("extension", () => {
     });
     await h.emit("session_tree", {});
     expect(await h.status()).toContain("status: VERIFIED");
-  });
-
-  it("keeps a cancel that happens while Gradle runs", async () => {
-    const root = workspace({ test: null });
-    let release = () => undefined as void;
-    const gate = new Promise<void>((r) => (release = r));
-    const gradle = fakeGradle(root, behavior);
-    const h = harness(root, async (c, a, o) => {
-      await gate;
-      return gradle.exec(c, a, o);
-    });
-    await h.run("Add a test");
-    await h.call("compose_test_start", { workflow: "write-test", targets: [{ file: TEST_FILE }] });
-    write(root, TEST_FILE, passingTest);
-    const running = h.call("compose_test_step");
-    await new Promise((r) => setTimeout(r, 20));
-    await h.run("cancel");
-    release();
-    expect((await running).content[0]?.text).toContain("Discarded");
-    expect(await h.status()).toContain("Cancelled by the operator");
   });
 
   it("handles status, cancel, empty goals, supersession, completions and missing runs", async () => {

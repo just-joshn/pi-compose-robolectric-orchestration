@@ -30,7 +30,7 @@ import {
   write,
 } from "./helpers.ts";
 
-describe("categorize", () => {
+describe("path categories", () => {
   it.each([
     ["app/src/test/java/A.kt", "test"],
     ["app/src/androidTest/java/A.kt", "test"],
@@ -42,12 +42,12 @@ describe("categorize", () => {
   ])("%s is %s", (path, category) => expect(categorize(path)).toBe(category));
 });
 
-describe("lint", () => {
-  const rules = (source: string) =>
-    lintTestSource("app/src/test/A.kt", source)
-      .map((f) => f.rule)
-      .toSorted();
+const rules = (source: string) =>
+  lintTestSource("app/src/test/A.kt", source)
+    .map((f) => f.rule)
+    .toSorted();
 
+describe("lint rules", () => {
   it("passes a clean v2 test and idiomatic helpers, comments and strings", () => {
     expect(rules(passingTest)).toEqual([]);
     expect(
@@ -90,9 +90,9 @@ class A {
   });
 });
 
-describe("gradle", () => {
-  const config = { file: TEST_FILE };
+const fooTarget = { file: TEST_FILE };
 
+describe("reading Gradle results", () => {
   it("parses JUnit XML", () => {
     expect(
       parseJUnitXml(`<testcase name="a" classname="p.T" time="1.5"/>
@@ -118,7 +118,9 @@ describe("gradle", () => {
     ).toBe("a.Actual");
     expect(className("// nothing", "x/FooTest.kt")).toBe("FooTest");
   });
+});
 
+describe("running Gradle per module", () => {
   it("runs one --rerun invocation per module, prefers the wrapper, and reads nested reports", async () => {
     const root = workspace();
     write(root, "lib/src/test/java/b/BarTest.kt", "package b\nclass BarTest");
@@ -146,26 +148,29 @@ describe("gradle", () => {
         return { code: 1, stdout: "", stderr: "" };
       },
       root,
-      [config],
+      [fooTarget],
     );
     expect(nested.outcome).toBe("failed");
   });
+});
 
+describe("classifying Gradle outcomes", () => {
   it("classifies failures, build errors, empty runs and phantom targets", async () => {
     const root = workspace();
-    expect((await runTargets(fakeGradle(root, () => "fail").exec, root, [config])).outcome).toBe(
+    expect((await runTargets(fakeGradle(root, () => "fail").exec, root, [fooTarget])).outcome).toBe(
       "failed",
     );
-    const broken = await runTargets(fakeGradle(root, () => "build-error").exec, root, [config]);
+    const broken = await runTargets(fakeGradle(root, () => "build-error").exec, root, [fooTarget]);
     expect(broken.outcome).toBe("build-error");
     expect(broken.outputTail).toContain("e: Unresolved reference");
     expect(
-      (await runTargets(async () => ({ code: 0, stdout: "", stderr: "" }), root, [config])).outcome,
+      (await runTargets(async () => ({ code: 0, stdout: "", stderr: "" }), root, [fooTarget]))
+        .outcome,
     ).toBe("no-tests");
     expect(
       (
         await runTargets(fakeGradle(root, () => "pass").exec, root, [
-          config,
+          fooTarget,
           { file: TEST_FILE, method: "missing" },
         ])
       ).outcome,
@@ -183,7 +188,7 @@ describe("gradle", () => {
   });
 });
 
-describe("fingerprint", () => {
+describe("fingerprints under git", () => {
   it("sees dirty, untracked, renamed, committed and ignored source files", () => {
     const root = workspace();
     const base = fingerprint(root);
@@ -209,7 +214,9 @@ describe("fingerprint", () => {
     write(root, "app/src/main/gen/Gen.kt", "x");
     expect(changedPaths(root, ignoredBase, fingerprint(root))).toEqual(["app/src/main/gen/Gen.kt"]);
   });
+});
 
+describe("fingerprints outside the repository root or git", () => {
   it("works in a subdirectory of a repository and without git, including symlinks", () => {
     const outer = mkdtempSync(join(tmpdir(), "compose-test-outer-"));
     mkdirSync(join(outer, "android"));
@@ -234,10 +241,9 @@ describe("fingerprint", () => {
   });
 });
 
-describe("swap", () => {
-  const env = { PI_COMPOSE_TEST_HOME: mkdtempSync(join(tmpdir(), "compose-test-home-")) };
-
+describe("temporary file swaps", () => {
   it("restores files, keeps files someone else changed, and repairs crashes once", async () => {
+    const env = { PI_COMPOSE_TEST_HOME: mkdtempSync(join(tmpdir(), "compose-test-home-")) };
     const dir = stateDir("/w", env);
     const root = mkdtempSync(join(tmpdir(), "compose-test-swap-"));
     const a = join(root, "A.kt");
@@ -281,7 +287,7 @@ describe("swap", () => {
   });
 });
 
-describe("state and workflows", () => {
+describe("persisted state", () => {
   it("accepts only well-formed persisted runs", () => {
     const run = newRun("g", null);
     expect(parseRun(run)).toEqual(run);
@@ -293,49 +299,46 @@ describe("state and workflows", () => {
     ).toBeNull();
     expect(parseRun({ ...run, status: "active" })).toBeNull();
   });
+});
 
+const failedRun = {
+  phase: "verify",
+  purpose: "verify",
+  command: "gradlew test",
+  exitCode: 1,
+  outcome: "failed",
+  cases: [{ className: "a.T", name: "m", status: "failed", seconds: 1, message: "boom\nmore" }],
+  seconds: 3,
+  outputTail: "",
+  tree: "t",
+} as const;
+
+describe("status report", () => {
   it("reports only recorded evidence", () => {
-    const [withRun] = addRun(
-      {
-        ...newRun("Add tests", null),
-        workflow: "write-test",
-        targets: [{ file: TEST_FILE, method: "m" }],
-      },
-      {
-        phase: "verify",
-        purpose: "verify",
-        command: "gradlew test",
-        exitCode: 1,
-        outcome: "failed",
-        cases: [
-          { className: "a.T", name: "m", status: "failed", seconds: 1, message: "boom\nmore" },
-        ],
-        seconds: 3,
-        outputTail: "",
-        tree: "t",
-      },
-    );
+    const base = {
+      ...newRun("Add tests", null),
+      workflow: "write-test" as const,
+      targets: [{ file: TEST_FILE, method: "m" }],
+    };
+    const [withRun] = addRun(base, failedRun);
+    const mutation = {
+      file: MAIN_FILE,
+      find: "a",
+      replace: "b",
+      runId: 1,
+      tree: "t",
+      detected: false,
+    };
+    const finding = {
+      file: TEST_FILE,
+      line: 1,
+      rule: "r",
+      severity: "error",
+      message: "m",
+      source: "agent",
+    } as const;
     const text = report(
-      finish(
-        {
-          ...withRun,
-          mutations: [
-            { file: MAIN_FILE, find: "a", replace: "b", runId: 1, tree: "t", detected: false },
-          ],
-          findings: [
-            {
-              file: TEST_FILE,
-              line: 1,
-              rule: "r",
-              severity: "error",
-              message: "m",
-              source: "agent",
-            },
-          ],
-        },
-        "incomplete",
-        "why",
-      ),
+      finish({ ...withRun, mutations: [mutation], findings: [finding] }, "incomplete", "why"),
     );
     for (const part of [
       "status: INCOMPLETE",
@@ -347,7 +350,9 @@ describe("state and workflows", () => {
       expect(text).toContain(part);
     expect(report(newRun("g", null))).toContain("(none started)");
   });
+});
 
+describe("kickoff prompt", () => {
   it("builds the kickoff from the skill and the routing table", () => {
     expect(workflowIds.every((id) => workflows[id].phases.length > 0)).toBe(true);
     expect(methodology()).toContain("## Core rules");
