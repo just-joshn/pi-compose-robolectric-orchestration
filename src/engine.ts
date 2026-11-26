@@ -10,9 +10,9 @@ import {
   saveSnapshot,
   scopeViolations,
 } from "./checks.ts";
-import { type Exec, runTargets, type Target } from "./gradle.ts";
+import { className, type Exec, runTargets, type Target } from "./gradle.ts";
 import { type LintFinding, lintTestSource, testFunctions } from "./lint.ts";
-import { categorize, isSource } from "./paths.ts";
+import { categorize, inside, isSource } from "./paths.ts";
 import {
   addRun,
   advance,
@@ -75,6 +75,8 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
     if (!workflow.createsTargets && !existsSync(join(cwd, file)))
       reject(`Target ${file} does not exist.`);
   }
+  for (const file of [...(input.subject ?? []), input.source ?? ""].filter(Boolean))
+    if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
   for (const file of input.subject ?? [])
     if (categorize(file) !== "production" || !existsSync(join(cwd, file)))
       reject(`Subject ${file} is not an existing production source file.`);
@@ -96,9 +98,10 @@ export function start(run: Run, input: StartInput, cwd: string, dir = stateDir(c
     phaseIndex: 0,
     baseline,
     snapshot: saveSnapshot(cwd, baseline, dir),
-    baselineTests: input.targets.flatMap((t) =>
-      testFunctions(read(cwd, t.file)).map((f) => f.name),
-    ),
+    baselineTests: input.targets.flatMap((t) => {
+      const source = read(cwd, t.file);
+      return testFunctions(source).map((f) => `${className(source, t.file)}.${f.name}`);
+    }),
   });
   return result(started, `Started ${input.workflow}.`, nextStep(started));
 }
@@ -298,6 +301,7 @@ export async function mutate(run: Run, input: MutationInput, deps: Deps): Promis
   const kind = currentPhase(run)?.kind;
   if (kind !== "mutation" && kind !== "regression")
     reject(`Not in a negative-control phase. ${nextStep(run)}`);
+  if (!inside(deps.cwd, input.file)) reject(`${input.file} is outside the workspace.`);
   if (categorize(input.file) !== "production")
     reject(`${input.file} is not production source; mutate the code under test.`);
   if (run.subject.length && !run.subject.includes(input.file))

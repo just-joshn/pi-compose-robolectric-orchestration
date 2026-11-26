@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 
 import type {
   ExtensionAPI,
@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { recheck } from "./checks.ts";
-import { categorize } from "./paths.ts";
+import { categorize, inside } from "./paths.ts";
 import { currentPhase, finish, newRun, nextStep, report, type Run, terminal } from "./state.ts";
 import { recoverSwap, stateDir } from "./swap.ts";
 import { registerTools, Session } from "./tools.ts";
@@ -28,9 +28,8 @@ function say(ctx: ExtensionContext, message: string) {
 function editBlock(run: Run, cwd: string, path: string): string | undefined {
   if (run.status === "routing")
     return "compose-test: call compose_test_start before editing files.";
+  if (!inside(cwd, path)) return `compose-test: ${path} is outside the workspace.`;
   const rel = relative(cwd, resolve(cwd, path));
-  if (rel.startsWith("..") || isAbsolute(rel))
-    return `compose-test: ${path} is outside the workspace.`;
   const phase = currentPhase(run);
   const category = categorize(rel);
   if (phase?.scope.includes(category)) return undefined;

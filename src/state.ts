@@ -56,7 +56,7 @@ export interface Run {
   readonly baseline: Fingerprint | null;
   /** File holding the start content of files that were uncommitted at start. */
   readonly snapshot: string | null;
-  /** @Test names in the targets at start. */
+  /** `Class.method` of every test in the targets at start. */
   readonly baselineTests: readonly string[];
   readonly runs: readonly TestRun[];
   readonly mutations: readonly Mutation[];

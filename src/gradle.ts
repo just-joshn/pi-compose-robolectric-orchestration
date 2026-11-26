@@ -114,9 +114,11 @@ function parseCase(tag: string, body: string): TestCase {
 }
 
 export const parseJUnitXml = (xml: string): TestCase[] =>
-  [...xml.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)].map(
-    ([, tag = "", body = ""]) => parseCase(tag, body),
-  );
+  [
+    ...xml
+      .replaceAll(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
+      .matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g),
+  ].map(([, tag = "", body = ""]) => parseCase(tag, body));
 
 function reports(target: Resolved, task: string): string[] {
   const dir = join(target.module, "build", "test-results", task);
@@ -135,9 +137,9 @@ const casesFor = (target: Resolved, task: string) =>
     ),
   );
 
-/** Every target must produce a case, so a target that ran nothing cannot hide behind another. */
+/** Every target must run a case, so a target that ran nothing cannot hide behind another. */
 function outcomeOf(exitCode: number, perTarget: readonly (readonly TestCase[])[]): Outcome {
-  if (perTarget.some((cases) => cases.length === 0))
+  if (perTarget.some((cases) => cases.every((c) => c.status === "skipped")))
     return exitCode === 0 ? "no-tests" : "build-error";
   if (perTarget.flat().some((c) => c.status === "failed")) return "failed";
   return exitCode === 0 ? "passed" : "build-error";

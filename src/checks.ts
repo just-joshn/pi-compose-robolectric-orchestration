@@ -105,8 +105,12 @@ export const lintErrors = (cwd: string, changed: readonly string[]) =>
     .flatMap((p) => lintTestSource(p, read(cwd, p)))
     .filter((f) => f.severity === "error");
 
-const passed = (r: TestRun, name: string) =>
-  r.cases.some((c) => c.status === "passed" && (c.name === name || c.name.startsWith(`${name}[`)));
+/** `test` is `Class.method`; nested classes report as `Class$Inner` and parameterized cases as `method[i]`. */
+const passed = (r: TestRun, test: string) =>
+  r.cases.some((c) => {
+    const id = `${c.className.split("$")[0]}.${c.name}`;
+    return c.status === "passed" && (id === test || id.startsWith(`${test}[`));
+  });
 
 function problems(run: Run, cwd: string): string[] {
   if (!run.workflow) return ["No workflow ran."];

@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { start } from "../src/engine.ts";
-import { className, gradleConfig, parseJUnitXml, runTargets } from "../src/gradle.ts";
+import { className, type Exec, gradleConfig, parseJUnitXml, runTargets } from "../src/gradle.ts";
 import { lintTestSource } from "../src/lint.ts";
 import { categorize } from "../src/paths.ts";
 import { addRun, finish, isRun, newRun, report } from "../src/state.ts";
@@ -27,6 +27,7 @@ import {
   git,
   MAIN_FILE,
   passingTest,
+  RESULT_XML,
   TEST_FILE,
   workspace,
   write,
@@ -445,5 +446,28 @@ describe("maintainability review regressions", () => {
       targets: [{ file: "app/src/test/java/a/FooTest.java" }],
     };
     expect(() => start(newRun("g", null), input, root)).toThrow(/\.kt test/);
+  });
+});
+
+describe("trusting Gradle results", () => {
+  it("does not treat a target whose cases were all skipped as passing", async () => {
+    const root = workspace();
+    const exec: Exec = async () => {
+      write(
+        root,
+        RESULT_XML,
+        '<testsuite><testcase name="showsGreeting" classname="a.FooTest"><skipped/></testcase></testsuite>',
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    expect((await runTargets(exec, root, [fooTarget])).outcome).toBe("no-tests");
+  });
+
+  it("ignores failure markup inside captured output", () => {
+    const xml =
+      '<testcase name="a" classname="p.T"><system-out><![CDATA[log: <failure> </testcase>]]></system-out></testcase>';
+    expect(parseJUnitXml(xml)).toEqual([
+      { className: "p.T", name: "a", status: "passed", seconds: 0 },
+    ]);
   });
 });
