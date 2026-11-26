@@ -10,7 +10,9 @@ import {
   begin,
   behavior,
   BREAK,
+  commit,
   deps,
+  git,
   MAIN_FILE,
   read,
   recordTask,
@@ -66,6 +68,42 @@ async function drive(workflow: WorkflowId, source: string, edit: (s: string) => 
 }
 
 const dropQuestion = (s: string) => s.replace(', "?")', ")");
+
+it("does not verify when an inherited passing test becomes skipped", async () => {
+  const root = workspace({
+    test: `package a\nimport org.junit.Test\nclass FooTest : BaseTest() {\n  @Test fun own() { assert(true) }\n}\n`,
+  });
+  const base = "app/src/test/java/a/BaseTest.kt";
+  const source = `package a\nimport org.junit.Test\nimport org.junit.Assume.assumeTrue\nopen class BaseTest {\n  @Test fun inherited() { assert(true) }\n}\n`;
+  write(root, base, source);
+  git(root, "add", "-A");
+  commit(root, "base test");
+  const d = deps(root, async (_command, args) => {
+    const skipped = read(root, base).includes("assumeTrue(false)");
+    const broken = read(root, MAIN_FILE).includes("BROKEN");
+    write(
+      root,
+      RESULT_XML,
+      `<testsuite><testcase classname="a.FooTest" name="inherited">${skipped ? "<skipped/>" : ""}</testcase><testcase classname="a.FooTest" name="own">${broken ? "<failure/>" : ""}</testcase></testsuite>`,
+    );
+    recordTask(root, args);
+    return { code: broken ? 1 : 0, stdout: "", stderr: "" };
+  });
+  const run = start(
+    newRun("fix flaky", null),
+    { workflow: "fix-flaky", targets: [{ file: TEST_FILE }] },
+    root,
+    d.dir,
+  ).run;
+  const baseline = await step(run, d);
+  write(root, base, source.replace("assert(true)", "assumeTrue(false); assert(true)"));
+  const after = await step(baseline.run, d);
+  const done = await mutate(after.run, BREAK, d);
+
+  expect(baseline.run.runs[0]?.cases.find((c) => c.name === "inherited")?.status).toBe("passed");
+  expect(after.run.runs.at(-1)?.cases.find((c) => c.name === "inherited")?.status).toBe("skipped");
+  expect(done.run.status).not.toBe("verified");
+});
 
 describe("a parameterized case dropped during a test-preserving workflow", () => {
   it.each([
