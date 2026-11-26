@@ -52,3 +52,18 @@ describe("a module whose build directory git does not ignore", () => {
     expect(changedPaths(root, before, fingerprint(root))).toEqual([pkg]);
   });
 });
+
+it("does not report a change when only the index differs on a fileMode-disabled checkout", () => {
+  const root = workspace();
+  write(root, "gradlew", "original\n");
+  chmodSync(join(root, "gradlew"), 0o755);
+  gitAs(root, "add", "gradlew");
+  commit(root, "executable wrapper");
+  gitAs(root, "config", "core.fileMode", "false");
+  chmodSync(join(root, "gradlew"), 0o644);
+  const before = fingerprint(root);
+  write(root, "gradlew", "temporary\n");
+  gitAs(root, "add", "gradlew");
+  write(root, "gradlew", "original\n");
+  expect(changedPaths(root, before, fingerprint(root))).toEqual([]);
+});

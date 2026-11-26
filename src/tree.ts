@@ -18,13 +18,13 @@ function isOutput(path: string): boolean {
 export const sha256 = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
 const sha = (data: Buffer | string) => sha256(data).slice(0, 16);
 
-function hashFile(path: string): string {
+function hashFile(path: string, fileMode: boolean): string {
   const stat = lstatSync(path, { throwIfNoEntry: false });
   if (stat?.isSymbolicLink()) return `link:${sha(readlinkSync(path))}`;
   // Git status lists a submodule or nested repository as one directory entry.
   if (stat?.isDirectory()) return `dir:${digest(fingerprint(path))}`;
   return stat?.isFile()
-    ? `${stat.mode & 0o111 ? "100755" : "100644"}:${sha(readFileSync(path))}`
+    ? `${fileMode ? (stat.mode & 0o111 ? "100755" : "100644") : "file"}:${sha(readFileSync(path))}`
     : "deleted";
 }
 
@@ -84,10 +84,11 @@ export function fingerprint(cwd: string): Fingerprint {
   const top = git(cwd, ["rev-parse", "--show-toplevel"])?.trim();
   const status = git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
   const gitAware = head && top && status !== undefined;
+  const fileMode = git(cwd, ["config", "--bool", "core.fileMode"])?.trim() !== "false";
   const paths = gitAware ? [...dirtyPaths(cwd, top, status), ...hiddenPaths(cwd)] : walk(cwd, cwd);
   return {
     head: gitAware ? head : null,
-    files: Object.fromEntries(paths.map((p) => [p, hashFile(join(cwd, p))])),
+    files: Object.fromEntries(paths.map((p) => [p, hashFile(join(cwd, p), fileMode)])),
   };
 }
 
@@ -105,7 +106,8 @@ function contentAt(cwd: string, fp: Fingerprint, path: string): string {
   const content = committed(cwd, fp.head, path);
   if (!content) return "deleted";
   const mode = git(cwd, ["ls-tree", fp.head, "--", `./${path}`])?.slice(0, 6);
-  return mode === "120000" ? `link:${sha(content)}` : `${mode}:${sha(content)}`;
+  const fileMode = git(cwd, ["config", "--bool", "core.fileMode"])?.trim() !== "false";
+  return mode === "120000" ? `link:${sha(content)}` : `${fileMode ? mode : "file"}:${sha(content)}`;
 }
 
 export function changedPaths(cwd: string, a: Fingerprint, b: Fingerprint): string[] {
