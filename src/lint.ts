@@ -148,7 +148,8 @@ function blockEnd(source: string, start: number): number {
   return end;
 }
 
-const BODY_START = /[{=\n]/g;
+/** A body may start on a later line; a newline followed by anything else means no body. */
+const BODY_START = /[{=]|\n(?![ \t\r\n]*[{=])/g;
 const ANNOTATIONS =
   /((?:@[\w.]+(?:\([^)]*\))?\s*)*)(?:(?:public|private|internal|override|suspend|open)\s+)*$/;
 

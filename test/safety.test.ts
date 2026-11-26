@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -48,6 +48,16 @@ describe("workspace confinement", () => {
       workflow: "write-test",
       targets: [{ file: TEST_FILE }],
       subject: [escape],
+    };
+    expect(() => start(newRun("g", null), input, root)).toThrow(/outside the workspace/);
+  });
+
+  it("rejects a target that a symlink leads outside the workspace", () => {
+    const { outer, root } = nestedWorkspace();
+    symlinkSync(join(outer, "app"), join(root, "link"));
+    const input: StartInput = {
+      workflow: "write-test",
+      targets: [{ file: "link/src/test/java/a/FooTest.kt" }],
     };
     expect(() => start(newRun("g", null), input, root)).toThrow(/outside the workspace/);
   });

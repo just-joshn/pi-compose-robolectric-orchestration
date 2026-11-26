@@ -1,3 +1,6 @@
+import { existsSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { className, type Exec, gradleConfig, parseJUnitXml, runTargets } from "../src/gradle.ts";
@@ -30,6 +33,14 @@ describe("reading Gradle results", () => {
       ),
     ).toBe("a.Actual");
     expect(className("// nothing", "x/FooTest.kt")).toBe("FooTest");
+  });
+
+  it("takes an indented top-level class but never a nested one", () => {
+    expect(className("package p\n  class Actual {\n @Test fun ok() {}\n}", "Different.kt")).toBe(
+      "p.Actual",
+    );
+    const nested = "package p\nclass Outer {\nclass Helper\n  @Test fun ok() {}\n}";
+    expect(className(nested, "Outer.kt")).toBe("p.Outer");
   });
 });
 
@@ -121,5 +132,20 @@ describe("trusting Gradle results", () => {
     expect(parseJUnitXml(xml)).toEqual([
       { className: "p.T", name: "a", status: "passed", seconds: 0 },
     ]);
+  });
+});
+
+describe("targets that leave the workspace after start", () => {
+  it("refuses a target reached through a symlink before touching its reports", async () => {
+    const outside = workspace();
+    const root = workspace({ test: null });
+    symlinkSync(join(outside, "app"), join(root, "link"));
+    const report = join(outside, RESULT_XML);
+    write(outside, RESULT_XML, "keep");
+    const run = runTargets(fakeGradle(root, () => "pass").exec, root, [
+      { file: "link/src/test/java/a/FooTest.kt" },
+    ]);
+    await expect(run).rejects.toThrow(/outside the workspace/);
+    expect(existsSync(report)).toBe(true);
   });
 });

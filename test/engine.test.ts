@@ -150,7 +150,7 @@ describe("starting a workflow", () => {
       );
     expect(() => s({ targets: [] })).toThrow(/at least one/);
     expect(() => s({ targets: [{ file: MAIN_FILE }] })).toThrow(/under src\/test/);
-    expect(() => s({ targets: [{ file: "../x/src/test/A.kt" }] })).toThrow(/relative/);
+    expect(() => s({ targets: [{ file: "../x/src/test/A.kt" }] })).toThrow(/outside the workspace/);
     expect(() =>
       s({ workflow: "fix-failing", targets: [{ file: "app/src/test/java/a/Missing.kt" }] }),
     ).toThrow(/does not exist/);

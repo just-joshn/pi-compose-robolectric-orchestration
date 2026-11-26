@@ -67,16 +67,15 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
   if (run.forcedWorkflow && run.forcedWorkflow !== input.workflow)
     reject(`The operator selected the ${run.forcedWorkflow} workflow. Start that one.`);
   if (input.targets.length === 0) reject("Name at least one target file.");
+  const paths = [...input.targets.map((t) => t.file), ...(input.subject ?? []), input.source ?? ""];
+  for (const file of paths.filter(Boolean))
+    if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
   for (const { file } of input.targets) {
-    if (file.startsWith("/") || file.includes(".."))
-      reject(`Target ${file} must be relative to the workspace root.`);
     if (runsTests && !/(^|\/)src\/test[A-Za-z]*\/.*\.kt$/.test(file))
       reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
     if (!workflow.createsTargets && !existsSync(join(cwd, file)))
       reject(`Target ${file} does not exist.`);
   }
-  for (const file of [...(input.subject ?? []), input.source ?? ""].filter(Boolean))
-    if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
   for (const file of input.subject ?? [])
     if (categorize(file) !== "production" || !existsSync(join(cwd, file)))
       reject(`Subject ${file} is not an existing production source file.`);

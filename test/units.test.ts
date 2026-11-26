@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { start } from "../src/engine.ts";
 import { className, gradleConfig, parseJUnitXml } from "../src/gradle.ts";
-import { lintTestSource } from "../src/lint.ts";
+import { lintTestSource, testFunctions } from "../src/lint.ts";
 import { categorize } from "../src/paths.ts";
 import { addRun, finish, isRun, newRun, report } from "../src/state.ts";
 import { recoverSwap, stateDir, withSwappedFiles } from "../src/swap.ts";
@@ -345,5 +345,16 @@ describe("maintainability review regressions", () => {
       targets: [{ file: "app/src/test/java/a/FooTest.java" }],
     };
     expect(() => start(newRun("g", null), input, root)).toThrow(/\.kt test/);
+  });
+});
+
+describe("Kotlin functions whose body starts on the next line", () => {
+  it("inventories and lints them like any other test", () => {
+    const source =
+      "class T {\n  @Test\n  fun test()\n  { Thread.sleep(1) }\n\n  abstract fun noBody()\n}";
+    expect(testFunctions(source).map((t) => t.name)).toEqual(["test"]);
+    expect(lintTestSource("app/src/test/T.kt", source).map((f) => f.rule)).toContain(
+      "thread-sleep",
+    );
   });
 });

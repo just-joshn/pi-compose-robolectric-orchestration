@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 
 import { stripCode } from "./lint.ts";
+import { inside } from "./paths.ts";
 
 export interface Target {
   /** Path relative to the workspace root. */
@@ -60,16 +61,19 @@ export function className(source: string, file: string): string {
   const pkg = /^\s*package\s+([\w.]+)/m.exec(code)?.[1];
   const firstTest = code.search(/@(org\.junit\.)?Test\b/);
   const declaration =
-    /^(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
+    /^[ \t]*(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|open|abstract|final|data|sealed)\s+)*(?:class|object)\s+(\w+)/gm;
   let name = basename(file).replace(/\.kt$/, "");
   for (const match of code.matchAll(declaration)) {
-    if (firstTest >= 0 && (match.index ?? 0) > firstTest) break;
-    name = match[1] ?? name;
+    const at = match.index ?? 0;
+    if (firstTest >= 0 && at > firstTest) break;
+    const before = code.slice(0, at);
+    if (before.split("{").length === before.split("}").length) name = match[1] ?? name;
   }
   return pkg ? `${pkg}.${name}` : name;
 }
 
 function resolve(cwd: string, target: Target, task: string): Resolved {
+  if (!inside(cwd, target.file)) throw new Error(`Target ${target.file} is outside the workspace.`);
   const absolute = join(cwd, target.file);
   if (!existsSync(absolute)) throw new Error(`Target ${target.file} does not exist.`);
   const index = absolute.lastIndexOf(`${sep}src${sep}`);
