@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -32,7 +33,7 @@ export function saveSnapshot(cwd: string, baseline: Fingerprint, dir: string): s
     if (lstatSync(full, { throwIfNoEntry: false })?.isFile())
       files[path] = readFileSync(full).toString("base64");
   }
-  const file = join(dir, `baseline-${Date.now()}.json`);
+  const file = join(dir, `baseline-${Date.now()}-${randomUUID()}.json`);
   atomicWrite(file, JSON.stringify(files));
   return file;
 }

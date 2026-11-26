@@ -3,9 +3,9 @@ import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { editProblem, finalize } from "../src/checks.ts";
+import { editProblem, finalize, saveSnapshot } from "../src/checks.ts";
 import { addFinding, mutate, start, type StartInput, step } from "../src/engine.ts";
 import { isRun, newRun, type TestRun } from "../src/state.ts";
 import { recoverSwap, withSwappedFiles } from "../src/swap.ts";
@@ -243,5 +243,16 @@ describe("round 8 gaps", () => {
       message: "m",
     } as const;
     expect(() => addFinding(run, finding, root)).toThrow(/outside the workspace/);
+  });
+});
+
+describe("two sessions starting together", () => {
+  it("never share a baseline snapshot file", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1);
+    const root = workspace();
+    const dir = mkdtempSync(join(tmpdir(), "compose-test-state-"));
+    const baseline = fingerprint(root);
+    expect(saveSnapshot(root, baseline, dir)).not.toBe(saveSnapshot(root, baseline, dir));
+    now.mockRestore();
   });
 });
