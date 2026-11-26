@@ -321,7 +321,7 @@ export async function mutate(run: Run, raw: MutationInput, deps: Deps): Promise<
     reject(`find must match exactly once in ${input.file}; it matched ${count} times.`);
   const swap = {
     path: join(deps.cwd, input.file),
-    content: Buffer.from(text.replace(input.find, input.replace)),
+    content: Buffer.from(text.replace(input.find, () => input.replace)),
   };
   return control(
     run,
