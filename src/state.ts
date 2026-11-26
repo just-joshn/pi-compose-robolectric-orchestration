@@ -48,6 +48,23 @@ export interface Finding extends LintFinding {
 export type Status = "routing" | "active" | "verified" | "blocked" | "incomplete";
 const STATUSES: readonly Status[] = ["routing", "active", "verified", "blocked", "incomplete"];
 
+export interface ReadRange {
+  readonly path: string;
+  readonly from: number;
+  readonly to: number;
+}
+
+export const lineCount = (text: string) => text.replace(/\n$/, "").split("\n").length;
+
+export function wholeRead(reads: readonly ReadRange[], path: string, lines: number): boolean {
+  let covered = 0;
+  for (const range of reads.filter((r) => r.path === path).toSorted((a, b) => a.from - b.from)) {
+    if (range.from > covered + 1) break;
+    covered = Math.max(covered, range.to);
+  }
+  return covered >= lines;
+}
+
 export interface Run {
   readonly version: 3;
   readonly id: string;
@@ -66,12 +83,7 @@ export interface Run {
   readonly runs: readonly TestRun[];
   readonly mutations: readonly Mutation[];
   readonly findings: readonly Finding[];
-  readonly reads: readonly string[];
-  readonly readRanges?: readonly {
-    readonly path: string;
-    readonly from: number;
-    readonly to: number;
-  }[];
+  readonly reads: readonly ReadRange[];
   readonly nudges: number;
   readonly backtracks: number;
   readonly reported: number;
@@ -122,7 +134,7 @@ export const finish = (run: Run, status: "verified" | "blocked" | "incomplete", 
   revise(run, { status, statusReason: reason });
 
 export const advance = (run: Run) =>
-  revise(run, { phaseIndex: run.phaseIndex + 1, reads: [], readRanges: [], statusReason: "" });
+  revise(run, { phaseIndex: run.phaseIndex + 1, reads: [], statusReason: "" });
 
 export const addRun = (run: Run, testRun: Omit<TestRun, "id">): [Run, TestRun] => {
   const recorded = { ...testRun, id: run.runs.length + 1 };
@@ -183,6 +195,9 @@ const isFingerprint = (v: unknown): v is Fingerprint =>
 
 const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
 
+const isReadRange = (v: unknown): v is ReadRange =>
+  isRecord(v) && isString(v["path"]) && isNumber(v["from"]) && isNumber(v["to"]);
+
 export function isRun(v: unknown): v is Run {
   if (!isRecord(v) || v["version"] !== 3) return false;
   const { workflow, status, phaseIndex } = v;
@@ -192,13 +207,8 @@ export function isRun(v: unknown): v is Run {
     isWorkflowOrNull(v["forcedWorkflow"]) &&
     hasStrings(v, ["id", "goal", "statusReason"]) &&
     ["nudges", "backtracks", "reported", "revision"].every((k) => isNumber(v[k])) &&
-    ["subject", "baselineTests", "reads"].every((k) => isArrayOf(v[k], isString)) &&
-    (v["readRanges"] === undefined ||
-      isArrayOf(
-        v["readRanges"],
-        (r): r is { path: string; from: number; to: number } =>
-          isRecord(r) && isString(r["path"]) && isNumber(r["from"]) && isNumber(r["to"]),
-      )) &&
+    ["subject", "baselineTests"].every((k) => isArrayOf(v[k], isString)) &&
+    isArrayOf(v["reads"], isReadRange) &&
     isArrayOf(v["runs"], isTestRun) &&
     isArrayOf(v["mutations"], isMutation) &&
     isArrayOf(v["findings"], isFinding) &&
@@ -279,7 +289,6 @@ export function backtrack(run: Run, reason: string): Run {
     phaseIndex: edit,
     backtracks: run.backtracks + 1,
     reads: [],
-    readRanges: [],
     statusReason: reason,
   });
 }

@@ -11,7 +11,16 @@ import {
 
 import { recheck } from "./checks.ts";
 import { categorize, inside, toolPath } from "./paths.ts";
-import { currentPhase, finish, newRun, nextStep, report, type Run, terminal } from "./state.ts";
+import {
+  currentPhase,
+  finish,
+  lineCount,
+  newRun,
+  nextStep,
+  report,
+  type Run,
+  terminal,
+} from "./state.ts";
 import { recoverSwap, stateDir } from "./swap.ts";
 import { registerTools, Session } from "./tools.ts";
 import { isWorkflowId, kickoff, workflowIds } from "./workflows.ts";
@@ -122,28 +131,14 @@ function registerToolGates(pi: ExtensionAPI, session: Session) {
     if (run?.status !== "active" || !isReadToolResult(event) || event.isError) return;
     const absolute = toolPath(ctx.cwd, pathOf(event.input));
     const path = relative(ctx.cwd, absolute);
-    if (!run.targets.some((target) => target.file === path) || run.reads.includes(path)) return;
-    const input = event.input;
-    const offset = typeof input["offset"] === "number" ? input["offset"] : 1;
-    const start = Math.trunc(Math.max(0, offset - 1));
-    const from = start + 1;
-    const limit = typeof input["limit"] === "number" ? input["limit"] : undefined;
-    const lines = readFileSync(absolute, "utf8").replace(/\n$/, "").split("\n");
-    const total = lines.length;
-    const count = event.details?.truncation?.truncated
+    if (!run.targets.some((target) => target.file === path)) return;
+    const { offset, limit } = event.input;
+    const from = typeof offset === "number" ? Math.max(1, Math.trunc(offset)) : 1;
+    const remaining = lineCount(readFileSync(absolute, "utf8")) - from + 1;
+    const shown = event.details?.truncation?.truncated
       ? event.details.truncation.outputLines
-      : lines.slice(start, limit === undefined ? undefined : start + limit).length;
-    const ranges = [...(run.readRanges ?? []), { path, from, to: from + count - 1 }];
-    let covered = 0;
-    for (const range of ranges.filter((r) => r.path === path).toSorted((a, b) => a.from - b.from)) {
-      if (range.from > covered + 1) break;
-      covered = Math.max(covered, range.to);
-    }
-    session.set({
-      ...run,
-      readRanges: ranges,
-      reads: covered >= total ? [...run.reads, path] : run.reads,
-    });
+      : Math.min(typeof limit === "number" ? limit : remaining, remaining);
+    session.set({ ...run, reads: [...run.reads, { path, from, to: from + shown - 1 }] });
   });
 }
 

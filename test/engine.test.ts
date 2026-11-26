@@ -342,7 +342,7 @@ describe("review workflow", () => {
         root,
       ),
     ).toThrow(/out of range/);
-    read1 = { ...read1, reads: [TEST_FILE] };
+    read1 = { ...read1, reads: [{ path: TEST_FILE, from: 1, to: 10_000 }] };
     write(root, "stray.txt", "x");
     await expect(step(read1, d)).rejects.toThrow(/read-only/);
     rmSync(join(root, "stray.txt"));

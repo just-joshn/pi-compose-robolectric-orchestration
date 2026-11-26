@@ -18,6 +18,9 @@ function isOutput(path: string): boolean {
 export const sha256 = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
 const sha = (data: Buffer | string) => sha256(data).slice(0, 16);
 
+const tracksFileMode = (cwd: string) =>
+  git(cwd, ["config", "--bool", "core.fileMode"])?.trim() !== "false";
+
 function hashFile(path: string, fileMode: boolean): string {
   const stat = lstatSync(path, { throwIfNoEntry: false });
   if (stat?.isSymbolicLink()) return `link:${sha(readlinkSync(path))}`;
@@ -84,7 +87,7 @@ export function fingerprint(cwd: string): Fingerprint {
   const top = git(cwd, ["rev-parse", "--show-toplevel"])?.trim();
   const status = git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
   const gitAware = head && top && status !== undefined;
-  const fileMode = git(cwd, ["config", "--bool", "core.fileMode"])?.trim() !== "false";
+  const fileMode = tracksFileMode(cwd);
   const paths = gitAware ? [...dirtyPaths(cwd, top, status), ...hiddenPaths(cwd)] : walk(cwd, cwd);
   return {
     head: gitAware ? head : null,
@@ -106,8 +109,9 @@ function contentAt(cwd: string, fp: Fingerprint, path: string): string {
   const content = committed(cwd, fp.head, path);
   if (!content) return "deleted";
   const mode = git(cwd, ["ls-tree", fp.head, "--", `./${path}`])?.slice(0, 6);
-  const fileMode = git(cwd, ["config", "--bool", "core.fileMode"])?.trim() !== "false";
-  return mode === "120000" ? `link:${sha(content)}` : `${fileMode ? mode : "file"}:${sha(content)}`;
+  return mode === "120000"
+    ? `link:${sha(content)}`
+    : `${tracksFileMode(cwd) ? mode : "file"}:${sha(content)}`;
 }
 
 export function changedPaths(cwd: string, a: Fingerprint, b: Fingerprint): string[] {

@@ -32,11 +32,13 @@ import {
   describeRun,
   type Finding,
   finish,
+  lineCount,
   nextStep,
   type Purpose,
   revise,
   type Run,
   type TestRun,
+  wholeRead,
 } from "./state.ts";
 import { type FileSwap, stateDir, withSwappedFiles } from "./swap.ts";
 import { digest, fingerprint } from "./tree.ts";
@@ -145,7 +147,9 @@ function completeEdit(run: Run, deps: Deps): Run {
 const asLintFinding = (f: LintFinding): Finding => ({ ...f, source: "lint" });
 
 function completeFindings(run: Run, deps: Deps): Run {
-  const unread = run.targets.filter((t) => !run.reads.includes(t.file));
+  const unread = run.targets.filter(
+    (t) => !wholeRead(run.reads, t.file, lineCount(read(deps.cwd, t.file))),
+  );
   if (unread.length)
     reject(`Read every target first. Not read yet: ${unread.map((t) => t.file).join(", ")}.`);
   const changed = changes(run, deps.cwd);

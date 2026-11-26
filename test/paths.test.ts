@@ -26,7 +26,7 @@ describe("workspace paths written with ./", () => {
       workflow: "review",
       targets: [{ file: dotted(TEST_FILE) }],
     });
-    const read = { ...review.run, reads: [TEST_FILE] };
+    const read = { ...review.run, reads: [{ path: TEST_FILE, from: 1, to: 10_000 }] };
     expect((await step(read, review.d)).run.status).toBe("verified");
 
     const root = workspace({ test: null });
