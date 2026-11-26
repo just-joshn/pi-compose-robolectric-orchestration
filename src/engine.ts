@@ -10,11 +10,11 @@ import {
   saveSnapshot,
   scopeViolations,
 } from "./checks.ts";
-import { type GradleDeps, runTargets, type Target, testClasses } from "./gradle.ts";
+import { type GradleDeps, type Target, testClasses } from "./gradle.ts";
 import { type LintFinding, lintTestSource } from "./lint.ts";
 import { categorize, inside, isSource } from "./paths.ts";
+import { execute, measure, reproduce, result, type StepResult, stress, verify } from "./runners.ts";
 import {
-  addRun,
   advance,
   backtrack,
   currentPhase,
@@ -33,20 +33,12 @@ import { type Phase, type PhaseKind, type WorkflowId, workflows } from "./workfl
 
 export type Deps = GradleDeps;
 
-export interface StepResult {
-  readonly run: Run;
-  readonly message: string;
-}
+export type { StepResult };
 
 export class WorkflowError extends Error {}
-const result = (run: Run, ...lines: string[]): StepResult => ({ run, message: lines.join("\n") });
 const reject = (message: string): never => {
   throw new WorkflowError(message);
 };
-
-const STRESS_RUNS = 5;
-const MEASURE_RUNS = 3;
-const MIN_SPEEDUP = 0.05;
 
 export interface StartInput {
   readonly workflow: WorkflowId;
@@ -112,27 +104,8 @@ export function start(run: Run, raw: StartInput, cwd: string, dir = stateDir(cwd
   return result(started, `Started ${input.workflow}.`, nextStep(started));
 }
 
-/** Test-preserving workflows verify whole classes, so sibling tests cannot break or disappear unseen. */
-async function execute(
-  run: Run,
-  purpose: Purpose,
-  deps: Deps,
-  tree = digest(fingerprint(deps.cwd)),
-): Promise<[Run, TestRun]> {
-  const whole =
-    run.workflow !== null &&
-    workflows[run.workflow].preserveTests &&
-    ["verify", "stress", "measure"].includes(purpose);
-  const targets = whole ? run.targets.map(({ file }) => ({ file })) : run.targets;
-  const execution = await runTargets(deps, targets);
-  return addRun(run, { phase: currentPhase(run)?.id ?? "", purpose, tree, ...execution });
-}
-
 const detected = (r: TestRun) =>
   r.outcome === "failed" && r.cases.some((c) => c.status === "failed");
-const median = (values: readonly number[]) =>
-  values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
-
 function completeEdit(run: Run, deps: Deps): Run {
   const problem = editProblem(run, deps.cwd);
   if (problem) reject(problem);
@@ -154,51 +127,6 @@ function completeFindings(run: Run, deps: Deps): Run {
   return advance(revise(run, { findings: [...run.findings, ...lint] }));
 }
 
-async function repeat(
-  run: Run,
-  purpose: Purpose,
-  times: number,
-  deps: Deps,
-): Promise<{ run: Run; recorded: TestRun[] }> {
-  if (times === 0) return { run, recorded: [] };
-  const [next, r] = await execute(run, purpose, deps);
-  if (r.outcome === "build-error") return { run: next, recorded: [r] };
-  const rest = await repeat(next, purpose, times - 1, deps);
-  return { run: rest.run, recorded: [r, ...rest.recorded] };
-}
-
-async function verify(run: Run, deps: Deps): Promise<StepResult> {
-  const [next, r] = await execute(run, "verify", deps);
-  if (r.outcome === "passed") return result(advance(next), describeRun(r));
-  const reason =
-    run.phaseIndex === 0
-      ? "The tests fail before any change. This workflow needs a passing baseline; fix the failures first (fix-failing)."
-      : `Verification ${r.outcome}.`;
-  return result(backtrack(next, reason), describeRun(r), reason);
-}
-
-async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
-  const [next, r] = await execute(run, "reproduce", deps);
-  if (r.outcome === "failed" || r.outcome === "build-error")
-    return result(advance(next), "Reproduced.", describeRun(r));
-  if (next.runs.filter((x) => x.purpose === "reproduce").length >= 2)
-    return result(
-      finish(next, "blocked", "The failure does not reproduce locally."),
-      describeRun(r),
-    );
-  const retry =
-    "Did not reproduce. Check the target and method, then call compose_test_step again.";
-  return result(next, describeRun(r), retry);
-}
-
-async function stress(run: Run, deps: Deps): Promise<StepResult> {
-  const { run: next, recorded } = await repeat(run, "stress", STRESS_RUNS, deps);
-  const bad = recorded.filter((r) => r.outcome !== "passed");
-  if (bad.length === 0) return result(advance(next), `All ${STRESS_RUNS} stress runs passed.`);
-  const reason = `${bad.length}/${recorded.length} stress runs did not pass.`;
-  return result(backtrack(next, reason), reason, ...bad.map(describeRun));
-}
-
 type Runner = (run: Run, deps: Deps, phase: Phase) => Promise<StepResult>;
 
 /** The phases the extension executes itself; every other kind waits for the model. */
@@ -215,36 +143,6 @@ async function runPhase(run: Run, phase: Phase, runner: Runner, deps: Deps): Pro
   if (violations.length === 0) return runner(run, deps, phase);
   const reason = `Out-of-scope changes: ${violations.join(", ")}. Revert them.`;
   return result(backtrack(run, reason), reason);
-}
-
-async function measure(run: Run, deps: Deps, phase: Phase): Promise<StepResult> {
-  const baseline = phase.id === "baseline";
-  const { run: next, recorded } = await repeat(run, "measure", MEASURE_RUNS, deps);
-  if (recorded.some((r) => r.outcome !== "passed")) {
-    const reason = "Every measurement run must pass.";
-    const ended = baseline
-      ? finish(next, "blocked", `${reason} Fix failing tests first.`)
-      : backtrack(next, reason);
-    return result(ended, reason, ...recorded.map(describeRun));
-  }
-  const unmeasured = recorded.filter((r) => r.testSeconds === null).map((r) => `#${r.id}`);
-  if (unmeasured.length) {
-    const reason = `Gradle reported no test time for run ${unmeasured.join(", ")}, so nothing was measured. The build must keep the extension's test listener.`;
-    return result(baseline ? finish(next, "blocked", reason) : backtrack(next, reason), reason);
-  }
-  const timing = `test time per run: ${recorded.map((r) => r.testSeconds?.toFixed(2)).join(", ")}s`;
-  if (baseline) return result(advance(next), `Baseline ${timing}`);
-  const before = median(
-    next.runs
-      .filter((r) => r.purpose === "measure" && r.phase === "baseline")
-      .flatMap((r) => r.testSeconds ?? []),
-  );
-  const after = median(recorded.flatMap((r) => r.testSeconds ?? []));
-  const speedup = before > 0 ? (before - after) / before : 0;
-  const summary = `Median test time ${before.toFixed(2)}s -> ${after.toFixed(2)}s (${(speedup * 100).toFixed(1)}%).`;
-  if (speedup >= MIN_SPEEDUP) return result(advance(next), summary, timing);
-  const reason = `${summary} Needs at least ${MIN_SPEEDUP * 100}%.`;
-  return result(backtrack(next, reason), reason);
 }
 
 function complete(run: Run, deps: Deps, message: string): StepResult {
