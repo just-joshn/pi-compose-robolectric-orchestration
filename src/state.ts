@@ -56,7 +56,7 @@ export interface Run {
   readonly baseline: Fingerprint | null;
   /** File holding the start content of files that were uncommitted at start. */
   readonly snapshot: string | null;
-  /** `Class.method` of every test in the targets at start. */
+  /** `Class.method` of each test found in the targets at start. */
   readonly baselineTests: readonly string[];
   readonly runs: readonly TestRun[];
   readonly mutations: readonly Mutation[];
@@ -161,7 +161,7 @@ const isFingerprint = (v: unknown): v is Fingerprint =>
 const isStatus = (v: unknown): v is Status => STATUSES.some((s) => s === v);
 const isWorkflowOrNull = (v: unknown): v is WorkflowId | null => v === null || isWorkflowId(v);
 
-/** A persisted run with the current shape and a reachable phase. */
+/** A persisted run whose fields have the expected primitive types and whose phase is reachable. */
 export function isRun(v: unknown): v is Run {
   if (!isRecord(v) || v["version"] !== 3) return false;
   const { workflow, status, phaseIndex } = v;
