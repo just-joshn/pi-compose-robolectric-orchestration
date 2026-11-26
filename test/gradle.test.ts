@@ -1,10 +1,18 @@
-import { existsSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { type Exec, gradleConfig, parseJUnitXml, runTargets, testClasses } from "../src/gradle.ts";
-import { fakeGradle, passingTest, RESULT_XML, TEST_FILE, workspace, write } from "./helpers.ts";
+import {
+  deps,
+  fakeGradle,
+  passingTest,
+  RESULT_XML,
+  TEST_FILE,
+  workspace,
+  write,
+} from "./helpers.ts";
 
 const fooTarget = { file: TEST_FILE };
 const firstClass = (source: string, file: string) => testClasses(source, file)[0]?.name;
@@ -50,7 +58,7 @@ describe("running Gradle per module", () => {
     const root = workspace();
     write(root, "lib/src/test/java/b/BarTest.kt", "package b\nclass BarTest");
     const gradle = fakeGradle(root, () => "pass");
-    const result = await runTargets(gradle.exec, root, [
+    const result = await runTargets(deps(root, gradle.exec), [
       { file: TEST_FILE, method: "showsGreeting" },
       { file: "lib/src/test/java/b/BarTest.kt" },
     ]);
@@ -64,19 +72,20 @@ describe("running Gradle per module", () => {
       "a.FooTest.showsGreeting",
       "--tests",
       "a.FooTest$*.showsGreeting",
+      "--init-script",
+      expect.stringMatching(/\.gradle$/),
     ]);
     expect(gradle.calls[1]?.slice(1, 4)).toEqual(["-p", "lib", "testDebugUnitTest"]);
     expect(result.outcome).toBe("no-tests");
     const nested = await runTargets(
-      async () => {
+      deps(root, async () => {
         write(
           root,
           "app/build/test-results/testDebugUnitTest/TEST-a.FooTest$Inner.xml",
           '<testcase name="t" classname="a.FooTest$Inner"><failure message="x"/></testcase>',
         );
         return { code: 1, stdout: "", stderr: "" };
-      },
-      root,
+      }),
       [fooTarget],
     );
     expect(nested.outcome).toBe("failed");
@@ -86,26 +95,32 @@ describe("running Gradle per module", () => {
 describe("classifying Gradle outcomes", () => {
   it("classifies failures, build errors, empty runs and phantom targets", async () => {
     const root = workspace();
-    expect((await runTargets(fakeGradle(root, () => "fail").exec, root, [fooTarget])).outcome).toBe(
-      "failed",
-    );
-    const broken = await runTargets(fakeGradle(root, () => "build-error").exec, root, [fooTarget]);
+    expect(
+      (await runTargets(deps(root, fakeGradle(root, () => "fail").exec), [fooTarget])).outcome,
+    ).toBe("failed");
+    const broken = await runTargets(deps(root, fakeGradle(root, () => "build-error").exec), [
+      fooTarget,
+    ]);
     expect(broken.outcome).toBe("build-error");
     expect(broken.outputTail).toContain("e: Unresolved reference");
     expect(
-      (await runTargets(async () => ({ code: 0, stdout: "", stderr: "" }), root, [fooTarget]))
-        .outcome,
+      (
+        await runTargets(
+          deps(root, async () => ({ code: 0, stdout: "", stderr: "" })),
+          [fooTarget],
+        )
+      ).outcome,
     ).toBe("no-tests");
     expect(
       (
-        await runTargets(fakeGradle(root, () => "pass").exec, root, [
+        await runTargets(deps(root, fakeGradle(root, () => "pass").exec), [
           fooTarget,
           { file: TEST_FILE, method: "missing" },
         ])
       ).outcome,
     ).toBe("no-tests");
     await expect(
-      runTargets(fakeGradle(root, () => "pass").exec, root, [{ file: "nope.kt" }]),
+      runTargets(deps(root, fakeGradle(root, () => "pass").exec), [{ file: "nope.kt" }]),
     ).rejects.toThrow(/does not exist/);
     expect(
       gradleConfig({
@@ -128,7 +143,7 @@ describe("trusting Gradle results", () => {
       );
       return { code: 0, stdout: "", stderr: "" };
     };
-    expect((await runTargets(exec, root, [fooTarget])).outcome).toBe("no-tests");
+    expect((await runTargets(deps(root, exec), [fooTarget])).outcome).toBe("no-tests");
   });
 
   it("ignores failure markup inside captured output", () => {
@@ -147,7 +162,7 @@ describe("targets that leave the workspace after start", () => {
     symlinkSync(join(outside, "app"), join(root, "link"));
     const report = join(outside, RESULT_XML);
     write(outside, RESULT_XML, "keep");
-    const run = runTargets(fakeGradle(root, () => "pass").exec, root, [
+    const run = runTargets(deps(root, fakeGradle(root, () => "pass").exec), [
       { file: "link/src/test/java/a/FooTest.kt" },
     ]);
     await expect(run).rejects.toThrow(/outside the workspace/);
@@ -181,8 +196,8 @@ describe("a file with several top-level test classes", () => {
       calls.push([...args]);
       return { code: 0, stdout: "", stderr: "" };
     };
-    await runTargets(exec, root, [fooTarget]);
-    await runTargets(exec, root, [{ file: TEST_FILE, method: "broken" }]);
+    await runTargets(deps(root, exec), [fooTarget]);
+    await runTargets(deps(root, exec), [{ file: TEST_FILE, method: "broken" }]);
     const filters = calls.map((args) => args.filter((_, i) => args[i - 1] === "--tests"));
     expect(filters).toEqual([
       ["a.First", "a.First$*", "a.Second", "a.Second$*"],
@@ -207,8 +222,7 @@ describe("the same test class in two modules", () => {
       return { code: 0, stdout: "", stderr: "" };
     };
     const result = await runTargets(
-      exec,
-      root,
+      deps(root, exec),
       files.map((file) => ({ file })),
     );
     expect(result.cases).toHaveLength(2);
@@ -229,7 +243,7 @@ describe("a package directory named src", () => {
       tasks.push(args.slice(1, 4).join(" "));
       return { code: 0, stdout: "", stderr: "" };
     };
-    await runTargets(exec, root, [{ file }]);
+    await runTargets(deps(root, exec), [{ file }]);
     expect(tasks).toEqual(["-p app testDebugUnitTest"]);
   });
 });
@@ -244,7 +258,7 @@ describe("a module whose Gradle path differs from its directory", () => {
       calls.push([...args]);
       return { code: 0, stdout: "", stderr: "" };
     };
-    await runTargets(exec, root, [{ file }]);
+    await runTargets(deps(root, exec), [{ file }]);
     expect(calls[0]?.slice(1, 4)).toEqual(["-p", "android/app", "testDebugUnitTest"]);
   });
 });
@@ -275,11 +289,32 @@ describe("tests in nested classes", () => {
 
   it("runs them, so their failures count", async () => {
     const root = workspace({ test: source });
-    const whole = await runTargets(exec(root), root, [fooTarget]);
+    const whole = await runTargets(deps(root, exec(root)), [fooTarget]);
     expect(whole.outcome).toBe("failed");
-    const method = await runTargets(exec(root), root, [{ file: TEST_FILE, method: "shouts" }]);
+    const method = await runTargets(deps(root, exec(root)), [
+      { file: TEST_FILE, method: "shouts" },
+    ]);
     expect(method.cases.map((c) => `${c.className}.${c.name}:${c.status}`)).toEqual([
       `${inner}.shouts:failed`,
     ]);
+  });
+});
+
+describe("a module with a child project inside its directory", () => {
+  it("is not failed by the child's tests, which never match the target", async () => {
+    const root = workspace();
+    write(root, "settings.gradle.kts", 'include(":app", ":app:sub")\n');
+    write(root, "app/sub/src/test/java/b/SubTest.kt", "package b\nclass SubTest");
+    /** Like Gradle: -p app also runs :app:sub's test task, which fails on a filter it cannot match. */
+    const exec: Exec = async (_c, args) => {
+      write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest"/>');
+      const script = args[args.indexOf("--init-script") + 1] ?? "";
+      const allowed =
+        existsSync(script) && /failOnNoMatchingTests = false/.test(readFileSync(script, "utf8"));
+      return allowed
+        ? { code: 0, stdout: "BUILD SUCCESSFUL", stderr: "" }
+        : { code: 1, stdout: "> Task :app:sub:test FAILED", stderr: "No tests found" };
+    };
+    expect((await runTargets(deps(root, exec), [fooTarget])).outcome).toBe("passed");
   });
 });

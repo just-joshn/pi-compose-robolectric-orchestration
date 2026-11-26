@@ -3,6 +3,7 @@ import { basename, dirname, join, relative } from "node:path";
 
 import { annotation, blockEnd, stripCode, testFunctions } from "./lint.ts";
 import { inside } from "./paths.ts";
+import { atomicWrite } from "./swap.ts";
 
 export interface Target {
   /** Path relative to the workspace root. */
@@ -42,6 +43,14 @@ export type Exec = (
   args: readonly string[],
   options: { cwd: string; timeoutMs: number; signal?: AbortSignal },
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+export interface GradleDeps {
+  readonly cwd: string;
+  readonly exec: Exec;
+  /** Private state directory outside the workspace. */
+  readonly dir: string;
+  readonly signal?: AbortSignal;
+}
 
 export function gradleConfig(env = process.env) {
   const timeout = Number(env["COMPOSE_TEST_TIMEOUT"] ?? 1200);
@@ -190,7 +199,17 @@ interface Invocation {
   readonly args: readonly string[];
 }
 
-function invocation(group: readonly Resolved[], gradle: string, task: string): Invocation {
+/** `-p <module>` also runs the task in child projects, whose tests never match the filters. */
+const INIT_SCRIPT = `allprojects {
+  tasks.withType(Test).configureEach { filter.failOnNoMatchingTests = false }
+}
+`;
+
+function invocation(
+  group: readonly Resolved[],
+  { gradle, task }: { gradle: string; task: string },
+  initScript: string,
+): Invocation {
   const root = group[0]?.root ?? "";
   // Gradle maps the module directory to its project, which may sit at a different path.
   const moduleDir = relative(root, group[0]?.module ?? root) || ".";
@@ -205,7 +224,16 @@ function invocation(group: readonly Resolved[], gradle: string, task: string): I
   return {
     root,
     gradle: existsSync(wrapper) ? wrapper : gradle,
-    args: ["--console=plain", "-p", moduleDir, task, "--rerun", ...tests],
+    args: [
+      "--console=plain",
+      "-p",
+      moduleDir,
+      task,
+      "--rerun",
+      ...tests,
+      "--init-script",
+      initScript,
+    ],
   };
 }
 
@@ -226,20 +254,20 @@ async function inOrder(
  * this run wrote.
  */
 export async function runTargets(
-  exec: Exec,
-  cwd: string,
+  { cwd, exec, dir, signal }: GradleDeps,
   targets: readonly Target[],
-  signal?: AbortSignal,
 ): Promise<Execution> {
   const config = gradleConfig();
   const resolved = targets.flatMap((t) => resolve(cwd, t));
+  const initScript = join(dir, "compose-test.init.gradle");
+  atomicWrite(initScript, INIT_SCRIPT);
   const started = Date.now();
   const keys = new Set(resolved.map((t) => `${t.root}\0${t.module}`));
   const invocations = [...keys].map((key) =>
     invocation(
       resolved.filter((t) => `${t.root}\0${t.module}` === key),
-      config.gradle,
-      config.task,
+      config,
+      initScript,
     ),
   );
   const results = await inOrder(exec, invocations, {

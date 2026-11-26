@@ -10,7 +10,7 @@ import {
   saveSnapshot,
   scopeViolations,
 } from "./checks.ts";
-import { type Exec, runTargets, type Target, testClasses } from "./gradle.ts";
+import { type GradleDeps, runTargets, type Target, testClasses } from "./gradle.ts";
 import { type LintFinding, lintTestSource } from "./lint.ts";
 import { categorize, inside, isSource } from "./paths.ts";
 import {
@@ -31,12 +31,7 @@ import { type FileSwap, stateDir, withSwappedFiles } from "./swap.ts";
 import { digest, fingerprint } from "./tree.ts";
 import { type Phase, type PhaseKind, type WorkflowId, workflows } from "./workflows.ts";
 
-export interface Deps {
-  readonly cwd: string;
-  readonly exec: Exec;
-  readonly dir: string;
-  readonly signal?: AbortSignal;
-}
+export type Deps = GradleDeps;
 
 export interface StepResult {
   readonly run: Run;
@@ -122,7 +117,7 @@ async function execute(
     workflows[run.workflow].preserveTests &&
     ["verify", "stress", "measure"].includes(purpose);
   const targets = whole ? run.targets.map(({ file }) => ({ file })) : run.targets;
-  const execution = await runTargets(deps.exec, deps.cwd, targets, deps.signal);
+  const execution = await runTargets(deps, targets);
   return addRun(run, { phase: currentPhase(run)?.id ?? "", purpose, tree, ...execution });
 }
 
