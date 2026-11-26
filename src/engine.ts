@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import {
   baselineContent,
@@ -60,6 +60,12 @@ export interface StartInput {
   readonly source?: string;
 }
 
+/** Tool paths are relative to the workspace root and must stay inside it. */
+function confine(cwd: string, file: string) {
+  if (isAbsolute(file)) reject(`${file} must be relative to the workspace root.`);
+  if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
+}
+
 function validateStart(run: Run, input: StartInput, cwd: string) {
   const workflow = workflows[input.workflow];
   const runsTests = input.workflow !== "review";
@@ -68,8 +74,7 @@ function validateStart(run: Run, input: StartInput, cwd: string) {
     reject(`The operator selected the ${run.forcedWorkflow} workflow. Start that one.`);
   if (input.targets.length === 0) reject("Name at least one target file.");
   const paths = [...input.targets.map((t) => t.file), ...(input.subject ?? []), input.source ?? ""];
-  for (const file of paths.filter(Boolean))
-    if (!inside(cwd, file)) reject(`${file} is outside the workspace.`);
+  for (const file of paths.filter(Boolean)) confine(cwd, file);
   for (const { file } of input.targets) {
     if (runsTests && !/(^|\/)src\/test[A-Za-z0-9]*\/.*\.kt$/.test(file))
       reject(`Target ${file} must be a .kt test under src/test (Robolectric runs local tests).`);
@@ -301,7 +306,7 @@ export async function mutate(run: Run, input: MutationInput, deps: Deps): Promis
   const kind = currentPhase(run)?.kind;
   if (kind !== "mutation" && kind !== "regression")
     reject(`Not in a negative-control phase. ${nextStep(run)}`);
-  if (!inside(deps.cwd, input.file)) reject(`${input.file} is outside the workspace.`);
+  confine(deps.cwd, input.file);
   if (categorize(input.file) !== "production")
     reject(`${input.file} is not production source; mutate the code under test.`);
   if (run.subject.length && !run.subject.includes(input.file))
@@ -360,7 +365,7 @@ const ranNothing = (r: TestRun) => r.outcome === "build-error" || r.outcome === 
 
 export function addFinding(run: Run, finding: Omit<Finding, "source">, cwd: string): StepResult {
   if (currentPhase(run)?.kind !== "findings") reject(`Not in a review phase. ${nextStep(run)}`);
-  if (!inside(cwd, finding.file)) reject(`${finding.file} is outside the workspace.`);
+  confine(cwd, finding.file);
   if (!existsSync(join(cwd, finding.file))) reject(`${finding.file} does not exist.`);
   const lines = read(cwd, finding.file).split("\n").length;
   if (finding.line > lines)

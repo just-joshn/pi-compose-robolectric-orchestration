@@ -370,3 +370,11 @@ describe("round 18 gaps", () => {
     expect(changedPaths(root, before, fingerprint(root))).toEqual([pkg]);
   });
 });
+
+describe("absolute tool paths", () => {
+  it("are refused with a clear message instead of reported missing", () => {
+    const root = workspace();
+    const input: StartInput = { workflow: "refactor", targets: [{ file: join(root, TEST_FILE) }] };
+    expect(() => start(newRun("g", null), input, root)).toThrow(/relative to the workspace root/);
+  });
+});

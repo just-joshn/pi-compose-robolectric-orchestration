@@ -207,3 +207,22 @@ describe("the same test class in two modules", () => {
     expect(result.cases).toHaveLength(2);
   });
 });
+
+describe("a package directory named src", () => {
+  it("does not move the module boundary", async () => {
+    const file = "app/src/test/java/com/src/ExampleTest.kt";
+    const root = workspace({ test: null });
+    write(
+      root,
+      file,
+      "package com.src\nclass ExampleTest {\n  @Test fun works() { assert(true) }\n}\n",
+    );
+    const tasks: string[] = [];
+    const exec: Exec = async (_c, args) => {
+      tasks.push(args[1] ?? "");
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await runTargets(exec, root, [{ file }]);
+    expect(tasks).toEqual([":app:testDebugUnitTest"]);
+  });
+});

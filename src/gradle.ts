@@ -96,9 +96,9 @@ function resolve(cwd: string, target: Target, task: string): Resolved[] {
   if (!inside(cwd, target.file)) throw new Error(`Target ${target.file} is outside the workspace.`);
   const absolute = join(cwd, target.file);
   if (!existsSync(absolute)) throw new Error(`Target ${target.file} does not exist.`);
-  const index = absolute.lastIndexOf(`${sep}src${sep}`);
+  const index = `/${target.file}`.indexOf("/src/");
   if (index < 0) throw new Error(`Target ${target.file} is not inside a src/ source set.`);
-  const module = absolute.slice(0, index);
+  const module = join(cwd, target.file.slice(0, index));
   let root = module;
   while (!["settings.gradle.kts", "settings.gradle"].some((f) => existsSync(join(root, f)))) {
     if (dirname(root) === root) throw new Error(`No settings.gradle(.kts) above ${target.file}.`);
