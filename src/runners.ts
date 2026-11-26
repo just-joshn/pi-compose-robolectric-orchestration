@@ -102,7 +102,6 @@ function ownFailure(cwd: string, { file, method }: Target, failed: readonly Test
   });
 }
 
-/** A run that executed nothing proves nothing, and two in a row mean the build cannot run tests. */
 function retryOrBlock(next: Run, r: TestRun, reason: string): StepResult {
   const stuck = cannotRunTests(next);
   if (stuck) return result(finish(next, "blocked", `${reason} (${stuck})`), describeRun(r));
@@ -111,13 +110,12 @@ function retryOrBlock(next: Run, r: TestRun, reason: string): StepResult {
   return result(next, describeRun(r), `${reason} ${retry}`);
 }
 
-/** Kotlin and javac diagnostics. A timeout kill, a crashed daemon or a missing dependency prints none. */
-const COMPILE_ERROR = /^e: |\.java:\d+: error: /m;
+const KOTLIN_OR_JAVAC_ERROR_LINE = /^e: |\.java:\d+: error: /m;
 
 export async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
   const [next, r] = await evidence(run, "reproduce", deps);
   const failed = r.cases.filter((c) => c.status === "failed");
-  const compileError = r.outcome === "build-error" && COMPILE_ERROR.test(r.outputTail);
+  const compileError = r.outcome === "build-error" && KOTLIN_OR_JAVAC_ERROR_LINE.test(r.outputTail);
   if (compileError || run.targets.some((t) => ownFailure(deps.cwd, t, failed)))
     return result(advance(next), "Reproduced.", describeRun(r));
   if (r.outcome === "build-error")

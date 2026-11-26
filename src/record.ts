@@ -51,7 +51,6 @@ function parseLine(line: string): unknown {
   }
 }
 
-/** Gradle records canonical project directories. */
 const canonical = (path: string) => (existsSync(path) ? realpathSync(path) : path);
 
 /**
