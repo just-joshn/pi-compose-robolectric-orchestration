@@ -72,8 +72,9 @@ const lineRules: readonly LineRule[] = [
   },
 ];
 
+/** Assertion calls (MockK's coVerify and confirmVerified included, type arguments allowed) and Kotest infix matchers such as `x shouldBe y`. */
 const ASSERTION =
-  /\.assert\w*\s*\(|\b(assert|verify|check|expect|ensure|should)\w*\s*[({]|\bfail\s*\(|\.should\w*\s*\(|\bawaitItem\s*\(|\bwaitUntil\w*\s*\(/;
+  /\.assert\w*\s*\(|\b(assert|verify|check|expect|ensure|should|coVerify|confirmVerified)\w*\s*(<[^>]*>\s*)?[({]|\bfail\s*\(|\.should\w*\s*\(|[\w)\]"'][ \t]+should\w*[ \t]+[\w"'([-]|\bawaitItem\s*\(|\bwaitUntil\w*\s*\(/;
 
 interface KotlinFunction {
   readonly name: string;

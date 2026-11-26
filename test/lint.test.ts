@@ -45,3 +45,17 @@ describe("Kotlin the scanner must read like the compiler", () => {
     expect(lintTestSource("app/src/test/T.kt", source)).toEqual([]);
   });
 });
+
+describe("assertions made with MockK and Kotest", () => {
+  it("count as assertions, while plain calls still do not", () => {
+    const source = `class T {
+  @Test fun reloads() { retry(); coVerify { repo.load() } }
+  @Test fun confirms() { confirmVerified(repo) }
+  @Test fun counts() { count shouldBe 0 }
+  @Test fun throws() { shouldThrow<IllegalStateException> { load() } }
+  @Test fun plain() { load(); val again = isReady && shouldRetry }
+}`;
+    const findings = lintTestSource("app/src/test/T.kt", source);
+    expect(findings.map((f) => `${f.line} ${f.rule}`)).toEqual(["6 no-assertion"]);
+  });
+});
