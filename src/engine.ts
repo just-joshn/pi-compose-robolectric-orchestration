@@ -220,7 +220,6 @@ async function runPhase(run: Run, phase: Phase, runner: Runner, deps: Deps): Pro
 async function measure(run: Run, deps: Deps, phase: Phase): Promise<StepResult> {
   const baseline = phase.id === "baseline";
   const { run: next, recorded } = await repeat(run, "measure", MEASURE_RUNS, deps);
-  const timing = `test time per run: ${recorded.map((r) => r.testSeconds.toFixed(2)).join(", ")}s`;
   if (recorded.some((r) => r.outcome !== "passed")) {
     const reason = "Every measurement run must pass.";
     const ended = baseline
@@ -228,13 +227,19 @@ async function measure(run: Run, deps: Deps, phase: Phase): Promise<StepResult> 
       : backtrack(next, reason);
     return result(ended, reason, ...recorded.map(describeRun));
   }
+  const unmeasured = recorded.filter((r) => r.testSeconds === null).map((r) => `#${r.id}`);
+  if (unmeasured.length) {
+    const reason = `Gradle reported no test time for run ${unmeasured.join(", ")}, so nothing was measured. The build must keep the extension's test listener.`;
+    return result(baseline ? finish(next, "blocked", reason) : backtrack(next, reason), reason);
+  }
+  const timing = `test time per run: ${recorded.map((r) => r.testSeconds?.toFixed(2)).join(", ")}s`;
   if (baseline) return result(advance(next), `Baseline ${timing}`);
   const before = median(
     next.runs
       .filter((r) => r.purpose === "measure" && r.phase === "baseline")
-      .map((r) => r.testSeconds),
+      .flatMap((r) => r.testSeconds ?? []),
   );
-  const after = median(recorded.map((r) => r.testSeconds));
+  const after = median(recorded.flatMap((r) => r.testSeconds ?? []));
   const speedup = before > 0 ? (before - after) / before : 0;
   const summary = `Median test time ${before.toFixed(2)}s -> ${after.toFixed(2)}s (${(speedup * 100).toFixed(1)}%).`;
   if (speedup >= MIN_SPEEDUP) return result(advance(next), summary, timing);

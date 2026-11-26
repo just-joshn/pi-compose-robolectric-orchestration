@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 
@@ -35,8 +36,8 @@ export interface Execution {
   readonly outcome: Outcome;
   readonly cases: readonly TestCase[];
   readonly seconds: number;
-  /** Test task time from Gradle's test listener; unlike JUnit XML times it includes class setup. */
-  readonly testSeconds: number;
+  /** Test task time from Gradle's test listener; unlike JUnit XML times it includes class setup. Null when Gradle reported none. */
+  readonly testSeconds: number | null;
   readonly outputTail: string;
 }
 
@@ -171,7 +172,6 @@ export const parseJUnitXml = (xml: string): TestCase[] =>
   ].map(([, tag = "", body = ""]) => parseCase(tag, body));
 
 const resultsDir = (module: string, task: string) => join(module, "build", "test-results", task);
-const TIMING = "compose-test-time.txt";
 
 function reports(target: Resolved, task: string): string[] {
   const dir = resultsDir(target.module, task);
@@ -205,41 +205,52 @@ interface Invocation {
 }
 
 /**
- * `-p <module>` also runs the task in child projects, whose tests never match the filters. The
- * root suite's time spans every test class, class-level setup included.
+ * Random per process: a build script cannot predict the timing file, and the init script's content,
+ * which keys Gradle's configuration cache, stays the same from run to run.
  */
-const INIT_SCRIPT = `allprojects {
+const PRIVATE = { script: `${randomUUID()}.init.gradle`, timing: `${randomUUID()}.time` };
+
+const groovyString = (text: string) => `'${text.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
+
+/**
+ * `-p <module>` also runs the task in child projects, whose tests never match the filters. Only
+ * the module's own task records its root suite's time, which spans every test class, class-level
+ * setup included.
+ */
+const initScript = (task: string, timing: string) => `allprojects {
   tasks.withType(Test).configureEach { task ->
     filter.failOnNoMatchingTests = false
-    def results = task.reports.junitXml.outputLocation
+    def own = task.name == ${groovyString(task)} && task.project.projectDir == gradle.startParameter.currentDir
     afterSuite { suite, result ->
-      if (suite.parent == null) {
-        def file = new File(results.get().asFile, "${TIMING}")
-        file.parentFile.mkdirs()
-        file.text = String.valueOf(result.endTime - result.startTime)
-      }
+      if (own && suite.parent == null) new File(${groovyString(timing)}).text = String.valueOf(result.endTime - result.startTime)
     }
   }
 }
 `;
 
-function testTaskSeconds(module: string, task: string): number {
-  const file = join(resultsDir(module, task), TIMING);
-  const ms = existsSync(file) ? Number(readFileSync(file, "utf8")) : 0;
-  return Number.isFinite(ms) ? ms / 1000 : 0;
+/** The module's test task time, or null when Gradle wrote no valid time. */
+function takeTestSeconds(timing: string): number | null {
+  const text = existsSync(timing) ? readFileSync(timing, "utf8") : "";
+  rmSync(timing, { force: true });
+  return /^\d+$/.test(text) ? Number(text) / 1000 : null;
 }
+
+const total = (parts: readonly (number | null)[]) =>
+  parts.reduce<number | null>(
+    (sum, part) => (sum === null || part === null ? null : sum + part),
+    0,
+  );
 
 function invocation(
   group: readonly Resolved[],
   { gradle, task }: { gradle: string; task: string },
-  initScript: string,
+  script: string,
 ): Invocation {
   const root = group[0]?.root ?? "";
   // Gradle maps the module directory to its project, which may sit at a different path.
   const module = group[0]?.module ?? root;
   const moduleDir = relative(root, module) || ".";
-  const stale = [...group.flatMap((t) => reports(t, task)), join(resultsDir(module, task), TIMING)];
-  for (const file of stale) rmSync(file, { force: true });
+  for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
   // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   // A class filter does not match the class's nested classes, which Gradle names Outer$Inner.
@@ -250,33 +261,29 @@ function invocation(
   return {
     root,
     gradle: existsSync(wrapper) ? wrapper : gradle,
-    args: [
-      "--console=plain",
-      "-p",
-      moduleDir,
-      task,
-      "--rerun",
-      ...tests,
-      "--init-script",
-      initScript,
-    ],
+    args: ["--console=plain", "-p", moduleDir, task, "--rerun", ...tests, "--init-script", script],
   };
 }
+
+type Ran = Awaited<ReturnType<Exec>> & { readonly testSeconds: number | null };
 
 /** Gradle invocations share the project's build lock, so they run one after another. */
 async function inOrder(
   exec: Exec,
   invocations: readonly Invocation[],
+  timing: string,
   options: { timeoutMs: number; signal?: AbortSignal },
-): Promise<Awaited<ReturnType<Exec>>[]> {
+): Promise<Ran[]> {
   if (options.signal?.aborted)
     throw new Error("Gradle run cancelled; it is not recorded as evidence.", {
       cause: options.signal.reason,
     });
   const [first, ...rest] = invocations;
   if (!first) return [];
+  rmSync(timing, { force: true });
   const result = await exec(first.gradle, first.args, { ...options, cwd: first.root });
-  return [result, ...(await inOrder(exec, rest, options))];
+  const ran = { ...result, testSeconds: takeTestSeconds(timing) };
+  return [ran, ...(await inOrder(exec, rest, timing, options))];
 }
 
 /**
@@ -289,8 +296,8 @@ export async function runTargets(
 ): Promise<Execution> {
   const config = gradleConfig();
   const resolved = targets.flatMap((t) => resolve(cwd, t));
-  const initScript = join(dir, "compose-test.init.gradle");
-  atomicWrite(initScript, INIT_SCRIPT);
+  const [script, timing] = [join(dir, PRIVATE.script), join(dir, PRIVATE.timing)];
+  atomicWrite(script, initScript(config.task, timing));
   const started = Date.now();
   // `-p <module>` reruns, and so clears, child projects' tests. Sorted, a module runs before its children.
   const keys = [...new Set(resolved.map((t) => `${t.root}\0${t.module}`))].toSorted();
@@ -298,13 +305,13 @@ export async function runTargets(
     invocation(
       resolved.filter((t) => `${t.root}\0${t.module}` === key),
       config,
-      initScript,
+      script,
     ),
   );
-  const results = await inOrder(exec, invocations, {
+  const results = await inOrder(exec, invocations, timing, {
     timeoutMs: config.timeoutMs,
     ...(signal ? { signal } : {}),
-  });
+  }).finally(() => rmSync(script, { force: true }));
   const exitCode = results.reduce((code, r) => (r.code === 0 ? code : r.code), 0);
   const output = results.map((r) => `${r.stdout}\n${r.stderr}`).join("\n");
   const commands = invocations.map((i) => `${i.gradle} ${i.args.join(" ")}`);
@@ -321,10 +328,7 @@ export async function runTargets(
       ).values(),
     ],
     seconds: Math.round((Date.now() - started) / 100) / 10,
-    testSeconds: [...new Set(resolved.map((t) => t.module))].reduce(
-      (sum, module) => sum + testTaskSeconds(module, config.task),
-      0,
-    ),
+    testSeconds: total(results.map((r) => r.testSeconds)),
     outputTail: output
       .split("\n")
       .filter((line) => /FAILED|What went wrong|error|e: |Exception/.test(line))

@@ -10,8 +10,11 @@ import { newRun } from "../src/state.ts";
 export const TEST_FILE = "app/src/test/java/a/FooTest.kt";
 export const MAIN_FILE = "app/src/main/java/a/Foo.kt";
 export const RESULT_XML = "app/build/test-results/testDebugUnitTest/TEST-a.FooTest.xml";
-/** Where the init script's test listener records the test task time, in milliseconds. */
-export const TIMING = "app/build/test-results/testDebugUnitTest/compose-test-time.txt";
+/** The file the init script's test listener writes the test task time to, in milliseconds. */
+export function timingFile(args: readonly string[]): string | undefined {
+  const script = readFileSync(args[args.indexOf("--init-script") + 1] ?? "", "utf8");
+  return /new File\('([^']+)'\)/.exec(script)?.[1];
+}
 
 export const passingTest = `package a
 
@@ -87,7 +90,8 @@ export function fakeGradle(
     );
     const ok = verdict === "pass" || (verdict === "flaky" && calls.length % 2 === 0);
     write(root, RESULT_XML, xml(names.map((name) => [name, ok])));
-    write(root, TIMING, String(names.length * 500));
+    const timing = timingFile(args);
+    if (timing) writeFileSync(timing, String(names.length * 500));
     return { code: ok ? 0 : 1, stdout: ok ? "BUILD SUCCESSFUL" : "FAILED", stderr: "" };
   };
   return { exec, calls };
