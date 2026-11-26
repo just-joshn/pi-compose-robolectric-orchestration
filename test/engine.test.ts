@@ -14,7 +14,7 @@ import {
   WorkflowError,
 } from "../src/engine.ts";
 import type { Exec } from "../src/gradle.ts";
-import { currentPhase, newRun, type Run } from "../src/state.ts";
+import { currentPhase, newRun, type Run, type TestRun } from "../src/state.ts";
 import { digest, fingerprint } from "../src/tree.ts";
 import {
   behavior,
@@ -453,19 +453,17 @@ describe("test preservation", () => {
       targets: [{ file: TEST_FILE }, { file: other }],
     };
     const run = start(newRun("g", null), input, root).run;
-    const pass = {
+    const pass: TestRun = {
       id: 1,
       phase: "verify",
-      purpose: "verify" as const,
+      purpose: "verify",
       command: "",
       exitCode: 0,
       seconds: 1,
-      outcome: "passed" as const,
+      outcome: "passed",
       outputTail: "",
       tree: digest(fingerprint(root)),
-      cases: [
-        { className: "a.OtherTest", name: "showsGreeting", status: "passed" as const, seconds: 1 },
-      ],
+      cases: [{ className: "a.OtherTest", name: "showsGreeting", status: "passed", seconds: 1 }],
     };
     const done = finalize({ ...run, runs: [pass] }, root);
     expect(done.statusReason).toMatch(

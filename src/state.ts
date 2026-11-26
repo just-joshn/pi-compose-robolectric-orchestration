@@ -168,7 +168,7 @@ export function isRun(v: unknown): v is Run {
   if (!isWorkflowOrNull(workflow) || !isStatus(status) || !isNumber(phaseIndex)) return false;
   return (
     isWorkflowOrNull(v["forcedWorkflow"]) &&
-    ["id", "goal", "statusReason"].every((k) => isString(v[k])) &&
+    hasStrings(v, ["id", "goal", "statusReason"]) &&
     ["nudges", "backtracks", "reported", "revision"].every((k) => isNumber(v[k])) &&
     ["subject", "baselineTests", "reads"].every((k) => isArrayOf(v[k], isString)) &&
     isArrayOf(v["runs"], isTestRun) &&

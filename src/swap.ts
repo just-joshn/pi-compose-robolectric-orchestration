@@ -85,26 +85,22 @@ export async function withSwappedFiles<T>(
     written: sha(swap.content),
   }));
   atomicWrite(join(dir, PENDING), JSON.stringify(files));
-  const outcome = await settled(async () => {
-    for (const swap of swaps) put(swap.path, swap.content);
-    return work();
-  });
-  const { conflicts } = restore(dir, files);
-  rmSync(join(dir, PENDING), { force: true });
-  if (outcome.ok) return { value: outcome.value, conflicts };
-  if (conflicts.length === 0) throw outcome.error;
-  const left = `Files changed during the run were left as they are: ${conflicts.join(", ")}`;
-  throw new Error(`${String(outcome.error)}\n${left}`, { cause: outcome.error });
-}
-
-type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
-
-async function settled<T>(work: () => Promise<T>): Promise<Settled<T>> {
+  const restoreAll = () => {
+    const { conflicts } = restore(dir, files);
+    rmSync(join(dir, PENDING), { force: true });
+    return conflicts;
+  };
+  let value: T;
   try {
-    return { ok: true, value: await work() };
+    for (const swap of swaps) put(swap.path, swap.content);
+    value = await work();
   } catch (error) {
-    return { ok: false, error };
+    const conflicts = restoreAll();
+    if (conflicts.length === 0) throw error;
+    const left = `Files changed during the run were left as they are: ${conflicts.join(", ")}`;
+    throw new Error(`${String(error)}\n${left}`, { cause: error });
   }
+  return { value, conflicts: restoreAll() };
 }
 
 export function recoverSwap(dir: string): { restored: string[]; conflicts: string[] } {
