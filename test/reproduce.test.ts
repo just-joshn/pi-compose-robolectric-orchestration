@@ -103,6 +103,50 @@ describe("fix-failing with a method target", () => {
   });
 });
 
+/** Gradle's output, from real Gradle 8.14.5 and Kotlin 2.2.20, for a run that executed no test. */
+const NOTHING_RAN = {
+  "timeout kill": { code: 143, stdout: "> Task :app:compileTestKotlin\n", stderr: "" },
+  "missing dependency": {
+    code: 1,
+    stdout: "> Task :app:compileTestKotlin FAILED\n",
+    stderr:
+      "* What went wrong:\nExecution failed for task ':app:compileTestKotlin'.\n> Could not resolve all files for configuration ':app:testCompileClasspath'.\n   > Could not find junit:junit:4.99.99.\n",
+  },
+};
+const COMPILE_ERRORS = {
+  kotlin: "e: file:///w/app/src/test/kotlin/a/FooTest.kt:5:46 Unresolved reference 'greting'.",
+  java: "/w/app/src/main/java/a/Bar.java:2: error: cannot find symbol",
+};
+
+describe("a fix-failing run that executed no test", () => {
+  it.each(Object.entries(NOTHING_RAN))(
+    "does not reproduce the failure after a %s, and blocks after two",
+    async (_kind, output) => {
+      const root = workspace();
+      const input = { workflow: "fix-failing", targets: [{ file: TEST_FILE }] } as const;
+      const run = start(newRun("g", null), input, root).run;
+      const d = deps(root, async () => output);
+      const once = await step(run, d);
+      expect(currentPhase(once.run)?.id).toBe("reproduce");
+      expect(once.message).toContain("no compile error and no failing test");
+      const twice = (await step(once.run, d)).run;
+      expect(twice.status).toBe("blocked");
+      expect(twice.statusReason).toMatch(/runs #1, #2 could not execute tests/);
+    },
+  );
+
+  it.each(Object.entries(COMPILE_ERRORS))(
+    "reproduces a failure to compile, shown by a %s diagnostic",
+    async (_kind, diagnostic) => {
+      const root = workspace();
+      const input = { workflow: "fix-failing", targets: [{ file: TEST_FILE }] } as const;
+      const run = start(newRun("g", null), input, root).run;
+      const d = deps(root, async () => ({ code: 1, stdout: "", stderr: `${diagnostic}\n` }));
+      expect(currentPhase((await step(run, d)).run)?.id).toBe("fix");
+    },
+  );
+});
+
 describe("a method target on a Parameterized test", () => {
   it("runs the method's cases and no method its name prefixes", async () => {
     const root = workspace({ test: source });

@@ -102,11 +102,30 @@ function ownFailure(cwd: string, { file, method }: Target, failed: readonly Test
   });
 }
 
+/** A run that executed nothing proves nothing, and two in a row mean the build cannot run tests. */
+function retryOrBlock(next: Run, r: TestRun, reason: string): StepResult {
+  const stuck = cannotRunTests(next);
+  if (stuck) return result(finish(next, "blocked", `${reason} (${stuck})`), describeRun(r));
+  const retry =
+    "Call compose_test_step to run them again; a second run that executes nothing blocks the workflow.";
+  return result(next, describeRun(r), `${reason} ${retry}`);
+}
+
+/** Kotlin and javac diagnostics. A timeout kill, a crashed daemon or a missing dependency prints none. */
+const COMPILE_ERROR = /^e: |\.java:\d+: error: /m;
+
 export async function reproduce(run: Run, deps: Deps): Promise<StepResult> {
   const [next, r] = await evidence(run, "reproduce", deps);
   const failed = r.cases.filter((c) => c.status === "failed");
-  if (r.outcome === "build-error" || run.targets.some((t) => ownFailure(deps.cwd, t, failed)))
+  const compileError = r.outcome === "build-error" && COMPILE_ERROR.test(r.outputTail);
+  if (compileError || run.targets.some((t) => ownFailure(deps.cwd, t, failed)))
     return result(advance(next), "Reproduced.", describeRun(r));
+  if (r.outcome === "build-error")
+    return retryOrBlock(
+      next,
+      r,
+      "Gradle failed with no compile error and no failing test, so the run proves nothing.",
+    );
   if (next.runs.filter((x) => x.purpose === "reproduce").length >= 2)
     return result(
       finish(next, "blocked", "The failure does not reproduce locally."),
@@ -122,11 +141,7 @@ export async function inventory(run: Run, deps: Deps): Promise<StepResult> {
   if (r.outcome === "passed" || r.outcome === "failed")
     return result(advance(next), describeRun(r));
   const reason = `The targets did not run before any change (${r.outcome}), so their cases are unknown.`;
-  const stuck = cannotRunTests(next);
-  if (stuck) return result(finish(next, "blocked", `${reason} (${stuck})`), describeRun(r));
-  const retry =
-    "Call compose_test_step to run them again; a second run that executes nothing blocks the workflow.";
-  return result(next, describeRun(r), `${reason} ${retry}`);
+  return retryOrBlock(next, r, reason);
 }
 
 export async function stress(run: Run, deps: Deps): Promise<StepResult> {
