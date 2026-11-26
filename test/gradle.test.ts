@@ -304,7 +304,7 @@ describe("tests in nested classes", () => {
   });
 });
 
-describe("a module with a child project inside its directory", () => {
+describe("a module with a child project", () => {
   it("is not failed by the child's tests, which never match the target", async () => {
     const root = workspace();
     write(root, "settings.gradle.kts", 'include(":app", ":app:sub")\n');
@@ -322,16 +322,25 @@ describe("a module with a child project inside its directory", () => {
     expect((await runTargets(deps(root, exec), [fooTarget])).outcome).toBe("passed");
   });
 
-  it("keeps the child's results when the child target is listed first", async () => {
+  it.each([
+    ["app/sub", "first"],
+    ["app/sub", "last"],
+    ["aaa/sub", "first"],
+    ["aaa/sub", "last"],
+  ] as const)("keeps the results of a child at %s listed %s", async (dir, order) => {
     const root = workspace();
-    write(root, "settings.gradle.kts", 'include(":app", ":app:sub")\n');
-    const sub = "app/sub/src/test/java/b/SubTest.kt";
+    write(
+      root,
+      "settings.gradle.kts",
+      `include(":app", ":app:sub")\nproject(":app:sub").projectDir = file("${dir}")\n`,
+    );
+    const sub = `${dir}/src/test/java/b/SubTest.kt`;
     write(root, sub, "package b\nclass SubTest {\n  @Test fun works() { assert(true) }\n}\n");
-    const subResults = "app/sub/build/test-results/testDebugUnitTest";
+    const subResults = `${dir}/build/test-results/testDebugUnitTest`;
     /** Like Gradle: -p app also reruns :app:sub's test task, which clears the child's results. */
     const exec: Exec = async (_c, args) => {
       rmSync(join(root, subResults), { recursive: true, force: true });
-      if (args.includes("app/sub"))
+      if (args.includes(dir))
         write(
           root,
           `${subResults}/TEST-b.SubTest.xml`,
@@ -340,9 +349,10 @@ describe("a module with a child project inside its directory", () => {
       else write(root, RESULT_XML, '<testcase name="showsGreeting" classname="a.FooTest"/>');
       return { code: 0, stdout: "", stderr: "" };
     };
-    const result = await runTargets(deps(root, exec), [{ file: sub }, fooTarget]);
+    const targets = order === "first" ? [{ file: sub }, fooTarget] : [fooTarget, { file: sub }];
+    const result = await runTargets(deps(root, exec), targets);
     expect(result.outcome).toBe("passed");
-    expect(result.cases.map((c) => c.name)).toEqual(["works", "showsGreeting"]);
+    expect(result.cases.map((c) => c.name).toSorted()).toEqual(["showsGreeting", "works"]);
   });
 });
 

@@ -204,6 +204,7 @@ interface Invocation {
   readonly root: string;
   readonly gradle: string;
   readonly args: readonly string[];
+  readonly targets: readonly Resolved[];
 }
 
 /**
@@ -251,7 +252,6 @@ function invocation(
   // Gradle maps the module directory to its project, which may sit at a different path.
   const module = group[0]?.module ?? root;
   const moduleDir = relative(root, module) || ".";
-  for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
   // The project's gradlew always wins over COMPOSE_TEST_GRADLE.
   const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   // A class filter does not match the class's nested classes, which Gradle names Outer$Inner, and
@@ -265,17 +265,31 @@ function invocation(
     root,
     gradle: existsSync(wrapper) ? wrapper : gradle,
     args: ["--console=plain", "-p", moduleDir, task, "--rerun", ...tests, "--init-script", script],
+    targets: group,
   };
 }
 
-type Ran = Awaited<ReturnType<Exec>> & { readonly testSeconds: number | null };
+type Ran = Awaited<ReturnType<Exec>> & {
+  readonly testSeconds: number | null;
+  readonly perTarget: readonly (readonly TestCase[])[];
+};
 
-/** Gradle invocations share the project's build lock, so they run one after another. */
+interface RunOptions {
+  readonly task: string;
+  readonly timing: string;
+  readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Gradle invocations share the project's build lock, so they run one after another. `-p <module>`
+ * also reruns, and so clears, child projects' tests, so each invocation's results are read before
+ * the next one runs.
+ */
 async function inOrder(
   exec: Exec,
   invocations: readonly Invocation[],
-  timing: string,
-  options: { timeoutMs: number; signal?: AbortSignal },
+  { task, timing, ...options }: RunOptions,
 ): Promise<Ran[]> {
   if (options.signal?.aborted)
     throw new Error("Gradle run cancelled; it is not recorded as evidence.", {
@@ -283,10 +297,12 @@ async function inOrder(
     });
   const [first, ...rest] = invocations;
   if (!first) return [];
+  for (const file of first.targets.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
   rmSync(timing, { force: true });
   const result = await exec(first.gradle, first.args, { ...options, cwd: first.root });
-  const ran = { ...result, testSeconds: takeTestSeconds(timing) };
-  return [ran, ...(await inOrder(exec, rest, timing, options))];
+  const perTarget = first.targets.map((t) => casesFor(t, task));
+  const ran = { ...result, testSeconds: takeTestSeconds(timing), perTarget };
+  return [ran, ...(await inOrder(exec, rest, { task, timing, ...options }))];
 }
 
 /**
@@ -302,8 +318,7 @@ export async function runTargets(
   const [script, timing] = [join(dir, PRIVATE.script), join(dir, PRIVATE.timing)];
   atomicWrite(script, initScript(config.task, timing));
   const started = Date.now();
-  // `-p <module>` reruns, and so clears, child projects' tests. Sorted, a module runs before its children.
-  const keys = [...new Set(resolved.map((t) => `${t.root}\0${t.module}`))].toSorted();
+  const keys = [...new Set(resolved.map((t) => `${t.root}\0${t.module}`))];
   const invocations = keys.map((key) =>
     invocation(
       resolved.filter((t) => `${t.root}\0${t.module}` === key),
@@ -311,21 +326,24 @@ export async function runTargets(
       script,
     ),
   );
-  const results = await inOrder(exec, invocations, timing, {
+  const results = await inOrder(exec, invocations, {
+    task: config.task,
+    timing,
     timeoutMs: config.timeoutMs,
     ...(signal ? { signal } : {}),
   }).finally(() => rmSync(script, { force: true }));
   const exitCode = results.reduce((code, r) => (r.code === 0 ? code : r.code), 0);
   const output = results.map((r) => `${r.stdout}\n${r.stderr}`).join("\n");
   const commands = invocations.map((i) => `${i.gradle} ${i.args.join(" ")}`);
-  const perTarget = resolved.map((t) => casesFor(t, config.task));
+  const ordered = invocations.flatMap((i) => i.targets);
+  const perTarget = results.flatMap((r) => r.perTarget);
   return {
     command: commands.join(" && "),
     exitCode,
     outcome: outcomeOf(exitCode, perTarget),
     cases: [
       ...new Map(
-        resolved.flatMap((t, i) =>
+        ordered.flatMap((t, i) =>
           (perTarget[i] ?? []).map((c) => [`${t.module}\0${c.className}#${c.name}`, c] as const),
         ),
       ).values(),
