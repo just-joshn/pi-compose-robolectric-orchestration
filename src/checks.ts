@@ -119,6 +119,12 @@ export function editProblem(run: Run, cwd: string): string | undefined {
 const liveTests = (source: string, file: string) =>
   testClasses(source, file).flatMap((c) => c.tests).length;
 
+/** `Class.method` of each test JUnit runs in the files. */
+export const testIds = (cwd: string, files: readonly string[]) =>
+  [...new Set(files)].flatMap((file) =>
+    testClasses(read(cwd, file), file).flatMap((c) => c.tests.map((n) => `${c.name}.${n}`)),
+  );
+
 export const lintErrors = (cwd: string, changed: readonly string[]) =>
   changed
     .filter((p) => categorize(p) === "test" && isSource(p) && existsSync(join(cwd, p)))
@@ -148,6 +154,27 @@ function lostCases(run: Run, last: TestRun): string[] {
     cases.map(caseId).filter((id) => run.baselineTests.some((t) => ofTest(id, t)));
   const ran = ids(firstCases(run).filter((c) => c.status !== "skipped"));
   return surplus(ran, ids(last.cases.filter((c) => c.status === "passed")));
+}
+
+/** Tests at start, each parameterized case on its own, that do not pass in `last`. */
+function lostTests(run: Run, last: TestRun): string[] {
+  const needed = (name: string) => run.baselineTests.filter((t) => t === name).length;
+  const lost = [...new Set(run.baselineTests)].filter(
+    (t) => !skippedAtStart(run, t) && passes(last, t) < needed(t),
+  );
+  return [...new Set([...lost, ...lostCases(run, last)])];
+}
+
+/** Cases of the tests the targets gained that `last` skipped, as a failed assumption does. */
+function skippedMigrations(run: Run, cwd: string, last: TestRun): string[] {
+  const files = run.targets.map((t) => t.file);
+  const gained = testIds(cwd, files).filter((t) => !run.baselineTests.includes(t));
+  const skipped = last.cases.filter((c) => c.status === "skipped").map(caseId);
+  const ids = [...new Set(skipped.filter((id) => gained.some((t) => ofTest(id, t))))];
+  if (ids.length === 0) return [];
+  return [
+    `Migrated cases were skipped in run #${last.id}: ${ids.join(", ")}. A case that does not run is not migrated.`,
+  ];
 }
 
 function problems(run: Run, cwd: string): string[] {
@@ -182,13 +209,10 @@ function problems(run: Run, cwd: string): string[] {
       );
   }
   if (workflow.preserveTests && lastPass) {
-    const needed = (name: string) => run.baselineTests.filter((t) => t === name).length;
-    const lost = [...new Set(run.baselineTests)].filter(
-      (t) => !skippedAtStart(run, t) && passes(lastPass, t) < needed(t),
-    );
-    const missing = [...new Set([...lost, ...lostCases(run, lastPass)])];
+    const missing = lostTests(run, lastPass);
     if (missing.length) found.push(`Original tests missing or not passing: ${missing.join(", ")}.`);
   }
+  if (run.source && lastPass) found.push(...skippedMigrations(run, cwd, lastPass));
   found.push(...weakenedTests(run, cwd, changed).map((p) => `Weakened tests: ${p}.`));
   const lint = lintErrors(cwd, changed);
   if (lint.length)

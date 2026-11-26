@@ -9,8 +9,9 @@ import {
   read,
   saveSnapshot,
   scopeViolations,
+  testIds,
 } from "./checks.ts";
-import { type GradleDeps, type Target, testClasses } from "./gradle.ts";
+import type { GradleDeps, Target } from "./gradle.ts";
 import { type LintFinding, lintTestSource } from "./lint.ts";
 import { categorize, inside, isSource } from "./paths.ts";
 import {
@@ -111,8 +112,9 @@ export function start(run: Run, raw: StartInput, cwd: string, dir = stateDir(cwd
     phaseIndex: 0,
     baseline,
     snapshot: saveSnapshot(cwd, baseline, dir),
-    baselineTests: [...new Set(input.targets.map((t) => t.file))].flatMap((file) =>
-      testClasses(read(cwd, file), file).flatMap((c) => c.tests.map((n) => `${c.name}.${n}`)),
+    baselineTests: testIds(
+      cwd,
+      input.targets.map((t) => t.file),
     ),
   });
   return result(started, `Started ${input.workflow}.`, nextStep(started));

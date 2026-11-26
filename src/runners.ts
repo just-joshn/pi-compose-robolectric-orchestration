@@ -20,7 +20,7 @@ import {
   type TestRun,
 } from "./state.ts";
 import { digest, fingerprint } from "./tree.ts";
-import { type Phase, workflows } from "./workflows.ts";
+import type { Phase } from "./workflows.ts";
 
 type Deps = GradleDeps;
 
@@ -38,17 +38,17 @@ const STRESS_RUNS = 5;
 const MEASURE_RUNS = 3;
 const MIN_SPEEDUP = 0.05;
 
-/** Test-preserving workflows run whole classes, so sibling tests cannot break or disappear unseen. */
+/**
+ * Every run but a negative control or regression check runs whole classes, so tests beside a
+ * named method cannot fail, be skipped or disappear unseen.
+ */
 export async function execute(
   run: Run,
   purpose: Purpose,
   deps: Deps,
   tree: string,
 ): Promise<[Run, TestRun]> {
-  const whole =
-    run.workflow !== null &&
-    workflows[run.workflow].preserveTests &&
-    ["verify", "reproduce", "inventory", "stress", "measure"].includes(purpose);
+  const whole = ["verify", "reproduce", "inventory", "stress", "measure"].includes(purpose);
   const targets = whole ? run.targets.map(({ file }) => ({ file })) : run.targets;
   const execution = await runTargets(deps, targets);
   return addRun(run, { phase: currentPhase(run)?.id ?? "", purpose, tree, ...execution });

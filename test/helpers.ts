@@ -131,11 +131,16 @@ export function fakeGradle(
   return { exec, calls };
 }
 
+/** A Gradle --tests filter as a regular expression; `*` is its only wildcard. */
+export const glob = (filter: string) =>
+  new RegExp(`^${filter.replaceAll(/[.$[\]()]/g, "\\$&").replaceAll("*", ".*")}$`);
+
 const RESULT_TAG = { passed: "", failed: '<failure message="x"/>', skipped: "<skipped/>" };
 
 /**
- * A fake Gradle that runs each @Test function of the target file, with the status `status` gives
- * its code (strings blanked) and the production file, and the task time `ms` gives.
+ * A fake Gradle that runs each @Test function of the target file its --tests filters match, with
+ * the status `status` gives its code (strings blanked) and the production file, and the task time
+ * `ms` gives.
  */
 export function junitGradle(
   root: string,
@@ -144,7 +149,11 @@ export function junitGradle(
 ): Exec {
   return async (_command, args) => {
     const main = read(root, MAIN_FILE);
-    const cases = testFunctions(read(root, TEST_FILE)).map((t) => ({
+    const filters = args.flatMap((a, i) => (args[i - 1] === "--tests" ? [glob(a)] : []));
+    const runs = (name: string) =>
+      filters.some((f) => f.test("a.FooTest") || f.test(`a.FooTest.${name}`));
+    const tests = testFunctions(read(root, TEST_FILE)).filter((t) => runs(t.name));
+    const cases = tests.map((t) => ({
       name: t.name,
       status: status(t.body, main),
     }));
@@ -156,10 +165,6 @@ export function junitGradle(
     return { code: cases.some((c) => c.status === "failed") ? 1 : 0, stdout: "", stderr: "" };
   };
 }
-
-/** A Gradle --tests filter as a regular expression; `*` is its only wildcard. */
-export const glob = (filter: string) =>
-  new RegExp(`^${filter.replaceAll(/[.$[\]()]/g, "\\$&").replaceAll("*", ".*")}$`);
 
 export const behavior = (main: string) => (main.includes("BROKEN") ? "fail" : "pass");
 
