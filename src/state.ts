@@ -153,6 +153,24 @@ function isRun(v: unknown): v is Run {
 /** Accept a persisted run only if it has the current shape and a reachable phase. */
 export const parseRun = (value: unknown): Run | null => (isRun(value) ? value : null);
 
+/** The current phase and its instruction, or the final status. */
+export function nextStep(run: Run): string {
+  const phase = currentPhase(run);
+  if (!phase || !run.workflow) return `Workflow ${run.status}: ${run.statusReason}`;
+  const why = run.statusReason ? `\nReturned to this phase because: ${run.statusReason}` : "";
+  return `Phase ${run.phaseIndex + 1}/${workflows[run.workflow].phases.length} "${phase.id}": ${phase.instruction}${why}`;
+}
+
+/** One run as shown to the model after a phase. */
+export function describeRun(r: TestRun): string {
+  const failed = r.cases.filter((c) => c.status === "failed");
+  return [
+    `run #${r.id} (${r.purpose}): ${r.outcome}, ${r.cases.length} cases, ${failed.length} failed, ${r.seconds}s`,
+    ...failed.slice(0, 5).map((c) => `  ✗ ${c.className}.${c.name}: ${c.message ?? ""}`),
+    ...(r.outcome === "build-error" && r.cases.length === 0 ? [r.outputTail] : []),
+  ].join("\n");
+}
+
 const runLine = (r: TestRun) => {
   const failed = r.cases.filter((c) => c.status === "failed");
   const first = failed[0]

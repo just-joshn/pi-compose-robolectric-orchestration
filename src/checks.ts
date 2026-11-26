@@ -80,6 +80,27 @@ export function weakenedTests(run: Run, cwd: string, changed: readonly string[])
   return weakened;
 }
 
+/** Why an edit phase cannot complete yet, checked in the order the agent should fix them. */
+export function editProblem(run: Run, cwd: string): string | undefined {
+  const missing = run.targets.filter((t) => !existsSync(join(cwd, t.file)));
+  if (missing.length) return `Targets do not exist yet: ${missing.map((t) => t.file).join(", ")}.`;
+  const violations = scopeViolations(run, cwd);
+  if (violations.length)
+    return `This phase may not change: ${violations.join(", ")}. Revert them, then call compose_test_step again.`;
+  const changed = changes(run, cwd);
+  const lint = lintErrors(cwd, changed).map((f) => `${f.file}:${f.line} ${f.rule}: ${f.message}`);
+  if (lint.length) return `Fix these before continuing:\n${lint.join("\n")}`;
+  const weakened = weakenedTests(run, cwd, changed);
+  if (weakened.length) return `Tests may not be weakened: ${weakened.join("; ")}. Restore them.`;
+  if (!run.source) return undefined;
+  const source = baselineContent(cwd, run, run.source)?.toString("utf8") ?? read(cwd, run.source);
+  const expected = testFunctions(source).length;
+  const actual = run.targets.reduce((n, t) => n + testFunctions(read(cwd, t.file)).length, 0);
+  if (actual < expected)
+    return `The source has ${expected} @Test cases but the targets have ${actual}. Migrate every case.`;
+  return undefined;
+}
+
 export const lintErrors = (cwd: string, changed: readonly string[]) =>
   changed
     .filter((p) => categorize(p) === "test" && isSource(p) && existsSync(join(cwd, p)))

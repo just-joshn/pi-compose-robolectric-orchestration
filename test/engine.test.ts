@@ -107,14 +107,23 @@ describe("write-test negative control", () => {
   });
 });
 
+/** Call compose_test_step `times` times in a row. */
+async function stepTimes(run: Run, d: ReturnType<typeof deps>, times: number): Promise<Run> {
+  return times === 0 ? run : stepTimes((await step(run, d)).run, d, times - 1);
+}
+
+/** The original assertion fails on broken code; a weakened one passes. */
+const strict = (main: string, test: string): Verdict =>
+  test.includes('"Hello").assertIsDisplayed') && main.includes("BROKEN") ? "fail" : "pass";
+
 describe("write-test retries and file safety", () => {
   it("gives up after three failed verifications", async () => {
     const root = workspace();
-    let { run } = begin(root);
+    const { run } = begin(root);
     const { d } = begin(root, {}, () => "fail");
-    for (let i = 0; i < 3; i++) run = (await step(run, d)).run;
-    expect(currentPhase(run)?.id).toBe("write");
-    expect((await step(run, d)).run.status).toBe("incomplete");
+    const retried = await stepTimes(run, d, 3);
+    expect(currentPhase(retried)?.id).toBe("write");
+    expect((await step(retried, d)).run.status).toBe("incomplete");
   });
 
   it("re-verifies when the tree changes after the passing run", async () => {
@@ -202,8 +211,6 @@ describe("fix-failing proves the fix", () => {
 
   it("never verifies a weakened assertion while the bug remains", async () => {
     const root = workspace();
-    const strict = (main: string, test: string) =>
-      test.includes('"Hello").assertIsDisplayed') && main.includes("BROKEN") ? "fail" : "pass";
     const { run, d } = await atFix(root, strict);
     write(
       root,

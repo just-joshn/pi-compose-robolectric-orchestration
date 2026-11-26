@@ -2,9 +2,11 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Exec } from "../src/gradle.ts";
+import { isArrayOf, isRecord, isString } from "../src/guards.ts";
 import composeTest from "../src/index.ts";
 import { newRun } from "../src/state.ts";
 import { stateDir } from "../src/swap.ts";
@@ -75,16 +77,45 @@ function fakePi(root: string, exec: Exec) {
 
 type Outcome = { block?: boolean; continue?: boolean; entries?: { content: string }[] } | undefined;
 
+/** Read a handler's return value into the fields the tests assert on. */
+function toOutcome(value: unknown): Outcome {
+  if (!isRecord(value)) return undefined;
+  const entries = isArrayOf(value["entries"], isRecord)
+    ? value["entries"].map((e) => ({ content: isString(e["content"]) ? e["content"] : "" }))
+    : undefined;
+  return {
+    ...(typeof value["block"] === "boolean" ? { block: value["block"] } : {}),
+    ...(typeof value["continue"] === "boolean" ? { continue: value["continue"] } : {}),
+    ...(entries ? { entries } : {}),
+  };
+}
+
+/** The fake provides every ExtensionAPI member the extension calls. */
+const isExtensionApi = (value: object): value is ExtensionAPI =>
+  ["on", "registerTool", "registerCommand", "appendEntry", "sendUserMessage", "exec"].every(
+    (name) => name in value,
+  );
+
+/** Run handlers in registration order, like Pi; the last defined result wins. */
+async function runHandlers(
+  handlers: readonly Handler[],
+  event: Record<string, unknown>,
+  ctx: unknown,
+  last?: Outcome,
+): Promise<Outcome> {
+  const [first, ...rest] = handlers;
+  if (!first) return last;
+  const outcome = toOutcome(await first(event, ctx)) ?? last;
+  return runHandlers(rest, event, ctx, outcome);
+}
+
 /** Load the extension into a fake Pi and expose the calls a test drives. */
 function harness(root: string, exec: Exec = fakeGradle(root, behavior).exec) {
   const { pi, ctx, recorded } = fakePi(root, exec);
-  composeTest(pi as never);
-  const emit = async (name: string, event: Record<string, unknown> = {}): Promise<Outcome> => {
-    let result: Outcome;
-    for (const handler of recorded.handlers.get(name) ?? [])
-      result = ((await handler({ type: name, ...event }, ctx)) as Outcome) ?? result;
-    return result;
-  };
+  if (!isExtensionApi(pi)) throw new Error("fake Pi is missing an ExtensionAPI member");
+  composeTest(pi);
+  const emit = (name: string, event: Record<string, unknown> = {}) =>
+    runHandlers(recorded.handlers.get(name) ?? [], { type: name, ...event }, ctx);
   const call = (name: string, params: unknown = {}) =>
     recorded.tools.get(name)?.execute("id", params, undefined, undefined, ctx) ??
     Promise.reject(new Error(name));
@@ -174,10 +205,13 @@ describe("an agent that stops or is cancelled", () => {
     expect(h.sent[0]).toContain("operator selected the review workflow");
     await h.call("compose_test_start", { workflow: "review", targets: [{ file: TEST_FILE }] });
     const finding = { file: TEST_FILE, line: 1, rule: "r", severity: "warning", message: "m" };
-    for (let i = 0; i < 3; i++) {
+    const findAndSettle = async () => {
       await h.call("compose_test_finding", finding);
-      expect(await h.settle()).toMatchObject({ continue: true });
-    }
+      return h.settle();
+    };
+    expect(await findAndSettle()).toMatchObject({ continue: true });
+    expect(await findAndSettle()).toMatchObject({ continue: true });
+    expect(await findAndSettle()).toMatchObject({ continue: true });
     expect((await h.settle())?.entries?.[0]?.content).toContain("INCOMPLETE");
   });
 

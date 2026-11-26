@@ -101,23 +101,23 @@ const attribute = (tag: string, name: string) =>
     .replaceAll("&#10;", "\n")
     .replaceAll("&amp;", "&");
 
-export function parseJUnitXml(xml: string): TestCase[] {
-  return [...xml.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)].map(
-    ([, tag = "", body = ""]) => {
-      const failure = /<(?:failure|error)\b([^>]*)/.exec(body);
-      const message = failure
-        ? (attribute(failure[1] ?? "", "message") ?? attribute(failure[1] ?? "", "type"))
-        : undefined;
-      return {
-        className: attribute(tag, "classname") ?? "",
-        name: attribute(tag, "name") ?? "",
-        status: failure ? "failed" : /<skipped\b/.test(body) ? "skipped" : "passed",
-        seconds: Number(attribute(tag, "time") ?? 0),
-        ...(message === undefined ? {} : { message: message.slice(0, 500) }),
-      };
-    },
-  );
+function parseCase(tag: string, body: string): TestCase {
+  const failure = /<(?:failure|error)\b([^>]*)/.exec(body);
+  const testCase: TestCase = {
+    className: attribute(tag, "classname") ?? "",
+    name: attribute(tag, "name") ?? "",
+    status: failure ? "failed" : /<skipped\b/.test(body) ? "skipped" : "passed",
+    seconds: Number(attribute(tag, "time") ?? 0),
+  };
+  const message =
+    failure && (attribute(failure[1] ?? "", "message") ?? attribute(failure[1] ?? "", "type"));
+  return message ? { ...testCase, message: message.slice(0, 500) } : testCase;
 }
+
+export const parseJUnitXml = (xml: string): TestCase[] =>
+  [...xml.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)].map(
+    ([, tag = "", body = ""]) => parseCase(tag, body),
+  );
 
 /** JUnit XML for the class and its nested classes. */
 function reports(target: Resolved, task: string): string[] {
@@ -145,6 +145,40 @@ function outcomeOf(exitCode: number, perTarget: readonly (readonly TestCase[])[]
   return exitCode === 0 ? "passed" : "build-error";
 }
 
+interface Invocation {
+  readonly root: string;
+  readonly gradle: string;
+  readonly args: readonly string[];
+}
+
+/** One Gradle invocation for the targets of one module, after deleting their old reports. */
+function invocation(group: readonly Resolved[], gradle: string, task: string): Invocation {
+  const root = group[0]?.root ?? "";
+  for (const file of group.flatMap((t) => reports(t, task))) rmSync(file, { force: true });
+  const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
+  const tests = group.flatMap((t) => [
+    "--tests",
+    t.method ? `${t.className}.${t.method}` : t.className,
+  ]);
+  return {
+    root,
+    gradle: existsSync(wrapper) ? wrapper : gradle,
+    args: ["--console=plain", group[0]?.task ?? "", "--rerun", ...tests],
+  };
+}
+
+/** Gradle invocations share the project's build lock, so they run one after another. */
+async function inOrder(
+  exec: Exec,
+  invocations: readonly Invocation[],
+  options: { timeoutMs: number; signal?: AbortSignal },
+): Promise<Awaited<ReturnType<Exec>>[]> {
+  const [first, ...rest] = invocations;
+  if (!first) return [];
+  const result = await exec(first.gradle, first.args, { ...options, cwd: first.root });
+  return [result, ...(await inOrder(exec, rest, options))];
+}
+
 /**
  * Run the targets with `--rerun`, one Gradle invocation per module, and read only the JUnit XML
  * this run wrote.
@@ -158,30 +192,21 @@ export async function runTargets(
   const config = gradleConfig();
   const resolved = targets.map((t) => resolve(cwd, t, config.task));
   const started = Date.now();
-  const commands: string[] = [];
-  let output = "";
-  let exitCode = 0;
-  for (const task of new Set(resolved.map((t) => `${t.root}\0${t.task}`))) {
-    const group = resolved.filter((t) => `${t.root}\0${t.task}` === task);
-    const root = group[0]?.root ?? cwd;
-    for (const file of group.flatMap((t) => reports(t, config.task))) rmSync(file, { force: true });
-    const wrapper = join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
-    const gradle = existsSync(wrapper) ? wrapper : config.gradle;
-    const args = [
-      "--console=plain",
-      group[0]?.task ?? "",
-      "--rerun",
-      ...group.flatMap((t) => ["--tests", t.method ? `${t.className}.${t.method}` : t.className]),
-    ];
-    commands.push(`${gradle} ${args.join(" ")}`);
-    const result = await exec(gradle, args, {
-      cwd: root,
-      timeoutMs: config.timeoutMs,
-      ...(signal ? { signal } : {}),
-    });
-    if (result.code !== 0) exitCode = result.code;
-    output += `${result.stdout}\n${result.stderr}\n`;
-  }
+  const keys = new Set(resolved.map((t) => `${t.root}\0${t.task}`));
+  const invocations = [...keys].map((key) =>
+    invocation(
+      resolved.filter((t) => `${t.root}\0${t.task}` === key),
+      config.gradle,
+      config.task,
+    ),
+  );
+  const results = await inOrder(exec, invocations, {
+    timeoutMs: config.timeoutMs,
+    ...(signal ? { signal } : {}),
+  });
+  const exitCode = results.reduce((code, r) => (r.code === 0 ? code : r.code), 0);
+  const output = results.map((r) => `${r.stdout}\n${r.stderr}`).join("\n");
+  const commands = invocations.map((i) => `${i.gradle} ${i.args.join(" ")}`);
   const perTarget = resolved.map((t) => casesFor(t, config.task));
   return {
     command: commands.join(" && "),

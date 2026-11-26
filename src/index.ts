@@ -2,13 +2,13 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 import type {
   ExtensionAPI,
+  ExtensionCommandContext,
   ExtensionContext,
   SessionBoundaryDraft,
 } from "@earendil-works/pi-coding-agent";
 
 import { recheck } from "./checks.ts";
-import { nextStep } from "./engine.ts";
-import { currentPhase, finish, newRun, report, type Run, terminal } from "./state.ts";
+import { currentPhase, finish, newRun, nextStep, report, type Run, terminal } from "./state.ts";
 import { recoverSwap, stateDir } from "./swap.ts";
 import { registerTools, Session } from "./tools.ts";
 import { categorize, isWorkflowId, kickoff, workflowIds } from "./workflows.ts";
@@ -72,6 +72,15 @@ function control(session: Session, first: string): string | undefined {
   return report(session.set(finish(run, "incomplete", "Cancelled by the operator.")));
 }
 
+/** sendUserMessage starts the turn asynchronously: wait up to 2 s for it to begin, then for it to end. */
+async function waitForTurn(ctx: ExtensionCommandContext, polls = 200): Promise<void> {
+  if (polls > 0 && ctx.isIdle()) {
+    await new Promise((r) => setTimeout(r, 10));
+    return waitForTurn(ctx, polls - 1);
+  }
+  return ctx.waitForIdle();
+}
+
 function registerCommand(pi: ExtensionAPI, session: Session) {
   pi.registerCommand("compose-test", {
     description: "Run a Compose + Robolectric test workflow: /compose-test [workflow] <goal>",
@@ -93,9 +102,7 @@ function registerCommand(pi: ExtensionAPI, session: Session) {
         session.set(finish(run, "incomplete", "Superseded by a new request."));
       session.set(newRun(goal, forced));
       pi.sendUserMessage(kickoff(goal, forced));
-      // sendUserMessage starts the turn asynchronously; wait for it to begin, then to finish.
-      for (let i = 0; i < 200 && ctx.isIdle(); i++) await new Promise((r) => setTimeout(r, 10));
-      await ctx.waitForIdle();
+      await waitForTurn(ctx);
     },
   });
 }

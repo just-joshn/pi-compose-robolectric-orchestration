@@ -14,11 +14,7 @@ proseWrap = "preserve"
 sortPackageJson = true
 sortTailwindcss = false
 
-ignorePatterns = [
-  "dist/",
-  "build/",
-  "coverage/",
-]
+ignorePatterns = ["dist/", "build/", "coverage/"]
 
 [fmt.sortImports]
 groups = [
